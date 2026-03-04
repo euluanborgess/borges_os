@@ -1,10 +1,12 @@
 # Borges OS - Main Application Entry Point (reload trigger: 2026-02-25T22:50)
-from fastapi import FastAPI, Depends, Request
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from core.database import get_db
+
+from pathlib import Path
 
 # CRITICAL: Initialize Celery properly before importing tasks inside routes
 from core.celery_app import celery_app
@@ -35,6 +37,10 @@ app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["metrics"
 app.include_router(config.router, prefix="/api/v1/ws/config", tags=["settings"])
 app.include_router(tasks.router, prefix="/api/v1/ws/tasks", tags=["tasks"])
 app.include_router(super_admin.router, prefix="/api/v1/super", tags=["super_admin"])
+
+# Ensure local static directories exist (StaticFiles crashes if directory is missing)
+for d in ["public", "frontend", "media_storage"]:
+    Path(d).mkdir(parents=True, exist_ok=True)
 
 # Servir assets estáticos (CSS, JS, Imagens)
 app.mount("/static", StaticFiles(directory="public"), name="static")

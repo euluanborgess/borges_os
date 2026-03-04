@@ -5,12 +5,16 @@ O Backend do BORGES OS foi inicializado com a estrutura para:
 - PostgreSQL (Banco Crítico de CRM)
 - Redis + Celery (Fila para mensagens demoradas/picotadas)
 
-Para rodá-lo (assumindo Docker instalado):
+Para rodar com Postgres/Redis (produção ou dev completo, assumindo Docker instalado):
 ```bash
 docker-compose up -d
 ```
-E para rodar a aplicação:
+
+Para rodar local rápido (DEV) sem Docker:
+- por padrão o backend usa **SQLite** (`sqlite:///./borges_os.db`)
+- copie `.env.example` para `.env` e ajuste o que precisar
+
+Rodar a aplicação:
 ```bash
-.\venv\Scripts\activate
 uvicorn main:app --reload
 ```
