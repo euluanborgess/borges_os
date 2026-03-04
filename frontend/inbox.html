@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Borges OS - Inbox & Handoff</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0fdfa',
+                            100: '#ccfbf1',
+                            400: '#2dd4bf',
+                            500: '#14b8a6',
+                            900: '#134e4a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #020617;
+            color: #f8fafc;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.4);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-size: 50px 50px;
+            background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .chat-bubble-ai {
+            background: linear-gradient(135deg, rgba(20, 184, 166, 0.2) 0%, rgba(20, 184, 166, 0.05) 100%);
+            border: 1px solid rgba(45, 212, 191, 0.2);
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-bubble-lead {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom-right-radius: 4px;
+        }
+    </style>
+</head>
+
+<body class="relative min-h-screen flex flex-col p-0 m-0 overflow-hidden">
+    <div class="bg-grid"></div>
+
+    <!-- Header -->
+    <nav
+        class="w-full p-4 flex justify-between items-center border-b border-gray-800 bg-gray-900/50 backdrop-blur-md z-20">
+        <div class="flex items-center space-x-4">
+            <a href="/" class="text-gray-400 hover:text-white transition">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" class="w-6 h-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+            </a>
+            <span class="text-brand-400 font-bold text-xl tracking-wider">BORGES_INBOX</span>
+            <span class="text-sm text-gray-400 ml-4 font-light">Central de Intervenção Humana</span>
+        </div>
+        <div class="flex items-center space-x-4">
+            <div
+                class="flex items-center text-xs text-brand-400 bg-brand-900/40 px-3 py-1 rounded-full border border-brand-500/30">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>
+                Socket Live
+            </div>
+            <a href="/pipeline" class="text-sm text-gray-400 hover:text-white font-medium">Ver Pipeline CRM</a>
+        </div>
+    </nav>
+
+    <main class="flex-1 flex w-full h-[calc(100vh-70px)]">
+
+        <!-- Sidebar: Lista de Leads -->
+        <aside class="w-80 h-full border-r border-gray-800 bg-gray-900/30 flex flex-col backdrop-blur-sm">
+            <div class="p-4 border-b border-gray-800">
+                <input type="text" placeholder="Buscar lead..."
+                    class="w-full bg-gray-950/50 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-brand-500 transition-colors">
+            </div>
+            <div id="leads-list" class="flex-1 overflow-y-auto no-scrollbar">
+                <!-- Injetar via JS -->
+            </div>
+        </aside>
+
+        <!-- Área Central de Chat -->
+        <section class="flex-1 flex flex-col h-full bg-transparent relative">
+
+            <!-- Topbar Chat Header -->
+            <header
+                class="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/20 backdrop-blur-md z-10">
+                <div class="flex items-center">
+                    <div
+                        class="w-10 h-10 rounded-full bg-gradient-to-tr from-brand-600 to-blue-600 flex items-center justify-center text-white font-bold shadow-lg mr-3">
+                        <span id="chat-avatar-letter">?</span>
+                    </div>
+                    <div>
+                        <h2 id="chat-lead-name" class="font-bold text-white tracking-wide">Selecione um Lead</h2>
+                        <p id="chat-lead-phone" class="text-xs text-gray-400 font-mono">--</p>
+                    </div>
+                </div>
+
+                <!-- Handoff Panel -->
+                <div class="flex space-x-3">
+                    <button id="btn-handoff"
+                        class="hidden px-4 py-2 rounded-lg bg-orange-500/20 text-orange-400 border border-orange-500/50 text-sm font-bold hover:bg-orange-500/30 transition-colors hover:shadow-[0_0_15px_rgba(249,115,22,0.2)]">
+                        Assumir Controle (Pausar IA)
+                    </button>
+                    <button id="btn-resume-ai"
+                        class="hidden px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 text-sm font-bold hover:bg-emerald-500/30 transition-colors">
+                        Reativar Automação IA
+                    </button>
+                </div>
+            </header>
+
+            <!-- Histórico de Mensagens -->
+            <div id="chat-history" class="flex-1 overflow-y-auto no-scrollbar p-6 space-y-4">
+                <div class="w-full h-full flex flex-col items-center justify-center text-gray-500 opacity-50">
+                    <svg class="w-16 h-16 mb-4 stroke-current" fill="none" stroke-width="1.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z">
+                        </path>
+                    </svg>
+                    Nenhuma conversa selecionada
+                </div>
+            </div>
+
+            <!-- Input / Envio Manual -->
+            <footer class="p-4 border-t border-gray-800 bg-gray-900/50 backdrop-blur-md">
+                <form id="send-msg-form" class="flex space-x-2">
+                    <input type="text" id="msg-input" disabled
+                        placeholder="Você precisa assumir o controle (Handoff) para digitar..."
+                        class="flex-1 bg-gray-950/80 border border-gray-700/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                    <button type="submit" id="btn-send" disabled
+                        class="px-6 py-3 rounded-xl bg-brand-600 text-white font-bold hover:bg-brand-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-5 h-5 transform rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                        </svg>
+                    </button>
+                </form>
+            </footer>
+        </section>
+    </main>
+
+    <script>
+        let currentTenantId = null;
+        let activeLeadId = null;
+        let ws = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initApp();
+        });
+
+        async function initApp() {
+            try {
+                const tr = await fetch('/api/v1/tenant');
+                const tData = await tr.json();
+                if (!tData.id) return;
+                currentTenantId = tData.id;
+
+                await loadSidebarList();
+                connectWebSocket();
+            } catch (e) { console.error("Initialize error:", e); }
+        }
+
+        async function loadSidebarList() {
+            const res = await fetch(`/api/v1/ws/inbox/leads/${currentTenantId}`);
+            const payload = await res.json();
+            const listDiv = document.getElementById('leads-list');
+            listDiv.innerHTML = '';
+
+            if (payload.data) {
+                payload.data.forEach(lead => {
+                    const name = lead.name && lead.name !== "Desconhecido" ? lead.name : lead.phone;
+                    const picture = (lead.profile_data && lead.profile_data.picture) ? lead.profile_data.picture : null;
+                    const el = document.createElement('div');
+                    el.className = "p-4 border-b border-gray-800/50 hover:bg-gray-800/30 cursor-pointer transition-colors";
+                    el.onclick = () => selectConversation(lead.id, name, lead.phone, picture);
+
+                    const avatarHtml = picture
+                        ? `<img src="${picture}" class="w-8 h-8 flex-shrink-0 rounded-full object-cover mr-3 border border-gray-700" />`
+                        : `<div class="w-8 h-8 flex-shrink-0 rounded-full bg-brand-900/40 text-brand-400 font-bold flex items-center justify-center mr-3 border border-brand-500/20">${name.charAt(0).toUpperCase()}</div>`;
+
+                    el.innerHTML = `
+                        <div class="flex items-center mb-1">
+                            ${avatarHtml}
+                            <div class="flex-1 min-w-0">
+                                <div class="flex justify-between items-center mb-1">
+                                    <h4 class="text-gray-200 font-semibold text-sm truncate pr-2">${name}</h4>
+                                    <span class="text-[9px] px-1.5 py-0.5 rounded border ${lead.temperature.includes('quente') ? 'border-red-500/30 text-red-400' : 'border-blue-500/30 text-blue-400'} uppercase">${lead.temperature || 'frio'}</span>
+                                </div>
+                                <p class="text-xs text-brand-400/80 mb-1 font-mono">${lead.pipeline_stage || 'Lead'}</p>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 truncate mt-1">${lead.last_message || ''}</p>
+                    `;
+                    listDiv.appendChild(el);
+                });
+            }
+        }
+
+        async function selectConversation(leadId, name, phone, picture = null) {
+            activeLeadId = leadId;
+            document.getElementById('chat-lead-name').innerText = name;
+            document.getElementById('chat-lead-phone').innerText = phone;
+
+            const avatarBox = document.getElementById('chat-avatar-letter').parentElement;
+            if (picture) {
+                avatarBox.innerHTML = `<img src="${picture}" class="w-full h-full object-cover rounded-full" />`;
+                avatarBox.classList.add("overflow-hidden");
+            } else {
+                avatarBox.innerHTML = `<span id="chat-avatar-letter">${name.charAt(0).toUpperCase()}</span>`;
+            }
+
+            // Mostra os botoes de Handoff
+            document.getElementById('btn-handoff').classList.remove('hidden');
+            // Num sistema real a gente buscaria se `is_paused_for_human` já está 1 para inverter os botões.
+            // Para UI de teste, deixamos a input travada e botão de handoff visível.
+
+            const chatDiv = document.getElementById('chat-history');
+            chatDiv.innerHTML = '<div class="text-center text-brand-500 mt-10 animate-pulse text-sm">Carregando neuro-memória...</div>';
+
+            const res = await fetch(`/api/v1/ws/inbox/messages/${currentTenantId}/${leadId}`);
+            const payload = await res.json();
+
+            chatDiv.innerHTML = '';
+
+            if (payload.data && payload.data.length > 0) {
+                payload.data.forEach(msg => appendMessageToChat(msg.sender_type, msg.content));
+                scrollToBottom();
+            } else {
+                chatDiv.innerHTML = '<div class="text-center text-gray-600 mt-10 text-sm">Nenhuma mensagem registrada.</div>';
+            }
+        }
+
+        function appendMessageToChat(sender, text) {
+            const chatDiv = document.getElementById('chat-history');
+            const wrapper = document.createElement('div');
+
+            if (sender === 'ai' || sender === 'agent' || sender === 'human') {
+                wrapper.className = "flex justify-end mb-4";
+                wrapper.innerHTML = `
+                    <div class="max-w-[70%] text-sm chat-bubble-ai px-4 py-3 text-white rounded-2xl relative shadow-md">
+                        ${text}
+                        <span class="absolute -bottom-5 right-1 text-[10px] text-brand-500/60 uppercase font-mono tracking-wider">${sender.toUpperCase()}</span>
+                    </div>
+                `;
+            } else {
+                wrapper.className = "flex justify-start mb-4";
+                wrapper.innerHTML = `
+                    <div class="max-w-[70%] text-sm chat-bubble-lead px-4 py-3 text-gray-200 rounded-2xl relative shadow-md">
+                        ${text}
+                        <span class="absolute -bottom-5 left-1 text-[10px] text-gray-600 uppercase font-mono tracking-wider">LEAD</span>
+                    </div>
+                `;
+            }
+            chatDiv.appendChild(wrapper);
+        }
+
+        function scrollToBottom() {
+            const chatDiv = document.getElementById('chat-history');
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+
+        function connectWebSocket() {
+            ws = new WebSocket(`ws://${window.location.host}/api/v1/ws/inbox/${currentTenantId}`);
+
+            ws.onmessage = function (event) {
+                const data = JSON.parse(event.data);
+
+                if (data.type === "inbox_update") {
+                    if (data.lead_id === activeLeadId && data.message) {
+                        appendMessageToChat(data.message.sender_type, data.message.content);
+                        scrollToBottom();
+                    }
+                    loadSidebarList();
+                } else if (data.lead_id === activeLeadId) {
+                    if (data.event === "message_received") appendMessageToChat('lead', data.content);
+                    if (data.event === "message_sent_ai") appendMessageToChat('ai', data.content);
+                    scrollToBottom();
+                } else {
+                    loadSidebarList();
+                }
+            };
+
+            ws.onclose = function () {
+                console.log("WS Disconnected. Reconnecting in 3s...");
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        // Lógica Fictícia Handoff UI Buttons
+        document.getElementById('btn-handoff').onclick = () => {
+            const inp = document.getElementById('msg-input');
+            const btn = document.getElementById('btn-send');
+            inp.disabled = false;
+            btn.disabled = false;
+            inp.placeholder = "Controle Humano ativo. Digite sua mensagem para o WhatsApp...";
+            inp.focus();
+
+            document.getElementById('btn-handoff').classList.add('hidden');
+            document.getElementById('btn-resume-ai').classList.remove('hidden');
+
+            // Aqui enviariamos WS ou HTTP pra setar is_paused_for_human = 1
+        };
+
+        document.getElementById('btn-resume-ai').onclick = () => {
+            const inp = document.getElementById('msg-input');
+            const btn = document.getElementById('btn-send');
+            inp.disabled = true;
+            btn.disabled = true;
+            inp.placeholder = "Você precisa assumir o controle (Handoff) para digitar...";
+
+            document.getElementById('btn-handoff').classList.remove('hidden');
+            document.getElementById('btn-resume-ai').classList.add('hidden');
+
+            // Setar is_paused_for_human = 0
+        };
+
+        // Envio nativo
+        document.getElementById('send-msg-form').onsubmit = (e) => {
+            e.preventDefault();
+            const inp = document.getElementById('msg-input');
+            const txt = inp.value.trim();
+            if (!txt || !activeLeadId) return;
+
+            // Bota na UI
+            appendMessageToChat('human', txt);
+            scrollToBottom();
+
+            // Envia pro server WebSocket engolir e mandar pra Evolution
+            ws.send(JSON.stringify({
+                action: "send_message",
+                lead_id: activeLeadId,
+                content: txt
+            }));
+
+            inp.value = '';
+        };
+
+    </script>
+</body>
+
+</html>

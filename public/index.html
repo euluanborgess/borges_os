@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BORGES OS - AI Sales System</title>
+    <!-- Fonte Moderna do Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="logo">
+            <h2>BORGES<span>.OS</span></h2>
+        </div>
+        
+        <nav class="nav-menu">
+            <button class="nav-item active" data-target="view-inbox">💬 Inbox (WebSockets)</button>
+            <button class="nav-item" data-target="view-dashboard">📊 Dashboard</button>
+            <button class="nav-item" data-target="view-calendar">📅 Calendário</button>
+        </nav>
+        
+        <!-- Lista de Leads no Painel Inbox -->
+        <div class="leads-list-container" id="leads-sidebar">
+            <h4 class="section-title">Leads Ativos</h4>
+            <div id="leads-list">
+                <!-- Leads serão populados aqui pelo JS -->
+            </div>
+        </div>
+    </aside>
+
+    <!-- CONTENT AREA -->
+    <main class="main-content">
+        
+        <!-- ======================= INBOX VIEW ======================= -->
+        <section id="view-inbox" class="view-section active">
+            <div class="chat-container">
+                <div class="chat-header">
+                    <div class="lead-info">
+                        <h3 id="current-lead-name">Selecione um Lead</h3>
+                        <p id="current-lead-phone">--</p>
+                    </div>
+                    <div class="ai-status">
+                        <span id="ai-indicator" class="status-badge ai-active">🤖 IA Ativa</span>
+                    </div>
+                </div>
+                
+                <div class="chat-messages" id="chat-messages">
+                    <!-- Mensagens do Lead e da IA / Humano cairão aqui via WS -->
+                    <div class="empty-state">
+                        Nenhuma conversa selecionada
+                    </div>
+                </div>
+                
+                <div class="chat-input-area">
+                    <input type="text" id="message-input" placeholder="Escreva uma mensagem... (Isso pausará a IA)" disabled />
+                    <button id="send-btn" disabled>Enviar</button>
+                </div>
+            </div>
+
+            <!-- CRM PANEL (Lado Direito do Inbox) -->
+            <div class="crm-panel d-none" id="crm-panel">
+                <h4>Detalhes do CRM</h4>
+                <div class="crm-field">
+                    <label>Temperatura</label>
+                    <span class="badge" id="crm-temp">--</span>
+                </div>
+                <div class="crm-field">
+                    <label>Estágio no Funil</label>
+                    <span class="badge stage" id="crm-stage">--</span>
+                </div>
+                <div class="crm-field">
+                    <label>Dados Perfil Coletados</label>
+                    <pre id="crm-profile-data">{}</pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- ======================= DASHBOARD VIEW =================== -->
+        <section id="view-dashboard" class="view-section">
+            <h2>Painel Gerencial</h2>
+            <div class="metrics-grid" id="metrics-grid">
+                <!-- Populado Vía API -->
+                Carregando métricas...
+            </div>
+        </section>
+        
+         <!-- ======================= CALENDAR VIEW =================== -->
+        <section id="view-calendar" class="view-section">
+            <h2>Calendário de Agendamentos</h2>
+            <div class="events-list" id="events-list">
+                <!-- Populado Vía API -->
+                Carregando eventos...
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Nosso App JavaScript -->
+    <script src="/static/app.js"></script>
+</body>
+</html>
