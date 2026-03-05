@@ -242,7 +242,8 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
         # Processar para contexto da IA
         if media_type == "audio":
             print("[Whisper] Transcrevendo áudio...")
-            transcription = await transcribe_audio_base64(base64_data)
+            integ = tenant.integrations or {}
+            transcription = await transcribe_audio_base64(base64_data, openai_api_key=integ.get('openai_api_key'))
             if transcription:
                 ai_context_text = f"[Áudio Transcrito]\n{transcription}"
                 if not text:
@@ -254,7 +255,8 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
                     
         elif media_type in ("image", "sticker"):
             print("[Vision] Analisando imagem...")
-            description = await describe_image_base64(base64_data)
+            integ = tenant.integrations or {}
+            description = await describe_image_base64(base64_data, openai_api_key=integ.get('openai_api_key'))
             ai_context_text = f"[Imagem enviada pelo cliente]\nDescrição: {description}"
             if text:
                 ai_context_text = f"[Imagem com legenda: {text}]\nDescrição da imagem: {description}"
@@ -263,7 +265,8 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
                 
         elif media_type == "document":
             print("[Doc] Processando documento...")
-            doc_text = await extract_document_text(base64_data, media_filename, media_mimetype)
+            integ = tenant.integrations or {}
+            doc_text = await extract_document_text(base64_data, media_filename, media_mimetype, openai_api_key=integ.get('openai_api_key'))
             ai_context_text = doc_text
             if not text:
                 text = f"📄 {media_filename}"

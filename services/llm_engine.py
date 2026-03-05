@@ -4,7 +4,9 @@ from typing import List, Optional
 from core.config import settings
 import json
 
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+def _get_client(openai_api_key: str | None = None) -> AsyncOpenAI:
+    key = (openai_api_key or settings.OPENAI_API_KEY or "").strip()
+    return AsyncOpenAI(api_key=key)
 
 class ActionDef(BaseModel):
     type: str = Field(description="O nome da ação (ex: update_lead_profile, schedule_meeting)")
@@ -15,7 +17,7 @@ class SDRResponse(BaseModel):
     reply_text: str = Field(description="A mensagem de texto formatada para responder ao Lead no WhatsApp.")
     actions: List[ActionDef] = Field(default_factory=list, description="Lista de ações de backoffice que o sistema deve disparar.")
 
-async def process_conversation(tenant_context: str, lead_profile: dict, conversation_history: list, latest_message: str):
+async def process_conversation(tenant_context: str, lead_profile: dict, conversation_history: list, latest_message: str, *, openai_api_key: str | None = None, model: str | None = None):
     """
     Envia a conversa consolidada para o LLM.
     Retorna a resposta (texto pro lead) e as actions (para nossa API executar local).
@@ -65,8 +67,11 @@ Sempre responda de forma humanizada, natural, e curta! Como no WhatsApp.
     messages.append({"role": "user", "content": latest_message})
 
     # Usando o novo "Structured Outputs"
+    client = _get_client(openai_api_key)
+    chosen_model = (model or settings.LLM_MODEL)
+
     response = await client.beta.chat.completions.parse(
-        model=settings.LLM_MODEL,
+        model=chosen_model,
         messages=messages,
         response_format=SDRResponse,
         temperature=0.3
