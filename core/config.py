@@ -6,7 +6,11 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     OPENAI_API_KEY: str = ""
     LLM_MODEL: str = "gpt-4.1-mini"
-    
+
+    # Public base URL used by external webhooks (Evolution -> Borges OS)
+    # Set this in production to your public HTTPS URL (e.g. https://crm.seudominio.com)
+    PUBLIC_BASE_URL: str = "http://localhost:8000"
+
     EVOLUTION_API_URL: str = "http://localhost:8080"
     EVOLUTION_API_KEY: str = ""
 

@@ -13,10 +13,10 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
     Suporta: texto, áudio, imagem, documento, sticker.
     """
     payload = await request.json()
-    
+
     event_type = payload.get("event")
     instance_name = payload.get("instance")
-    
+
     tenant = db.query(Tenant).filter(Tenant.evolution_instance_id == instance_name).first()
     # Fallback caso evolution_instance_id nao tenha sido salvo
     if not tenant and instance_name and instance_name.startswith("borges_"):
