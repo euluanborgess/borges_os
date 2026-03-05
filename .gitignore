@@ -25,3 +25,4 @@ Thumbs.db
 
 # Local runtime storage
 media_storage/
+*.db
