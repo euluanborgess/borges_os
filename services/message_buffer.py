@@ -124,16 +124,35 @@ O SEU OBJETIVO PRINCIPAL NESTA CONVERSA É: {agent_goal}
                 continue # Evita passar a mensagem atual repetida duas vezes (no history e no latest_message)
             history.append({"sender_type": m.sender_type, "content": m.content})
         
-        resultado_sdr = asyncio.run(
-            process_conversation(
-                tenant_context=tenant_context,
-                lead_profile=lead_profile,
-                conversation_history=history,
-                latest_message=consolidated_text
-            )
-        )
-        print(f"RESPOSTA IA: {resultado_sdr['reply_text']}")
-        print(f"AÇÕES: {resultado_sdr['actions']}")
+        integ = tenant.integrations or {} if tenant else {}
+        openai_key = integ.get("openai_api_key")
+        chosen_model = (ai_c.get("llm_model") or ai_c.get("model")) if ai_c else None
+
+        resultado_sdr = {"reply_text": "", "actions": []}
+
+        if not openai_key:
+            # No LLM configured for this tenant. Fail safe: request human handoff.
+            resultado_sdr["reply_text"] = "Recebi sua mensagem. Vou te encaminhar para um atendente humano e já já te respondo por aqui."
+            resultado_sdr["actions"] = [{"type": "handoff_to_human"}]
+        else:
+            try:
+                resultado_sdr = asyncio.run(
+                    process_conversation(
+                        tenant_context=tenant_context,
+                        lead_profile=lead_profile,
+                        conversation_history=history,
+                        latest_message=consolidated_text,
+                        openai_api_key=openai_key,
+                        model=chosen_model,
+                    )
+                )
+            except Exception as e:
+                print(f"[IA] Falha ao processar conversa (fallback p/ humano): {e}")
+                resultado_sdr["reply_text"] = "Tive uma instabilidade aqui. Vou te encaminhar para um atendente humano e já já te respondo por aqui."
+                resultado_sdr["actions"] = [{"type": "handoff_to_human"}]
+
+        print(f"RESPOSTA IA: {resultado_sdr.get('reply_text')}")
+        print(f"AÇÕES: {resultado_sdr.get('actions')}")
         
         # Resolve e Salva as actions no banco!
         if resultado_sdr.get('actions'):
@@ -166,8 +185,15 @@ O SEU OBJETIVO PRINCIPAL NESTA CONVERSA É: {agent_goal}
                 destination_number = lead.phone
                 
                 # Roda o envio de forma bloqueante para a thread do worker, garantindo que dispare antes de morrer
+                integ = tenant.integrations or {}
                 asyncio.run(
-                    send_whatsapp_message(tenant.evolution_instance_id, destination_number, reply)
+                    send_whatsapp_message(
+                        tenant.evolution_instance_id,
+                        destination_number,
+                        reply,
+                        evolution_url=integ.get("evolution_api_url"),
+                        evolution_api_key=integ.get("evolution_api_key"),
+                    )
                 )
 
                 # Dispara evento WebSockets para a UI (InBox) ser notificada em tempo real

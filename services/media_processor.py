@@ -9,7 +9,9 @@ import httpx
 from openai import AsyncOpenAI
 from core.config import settings
 
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+def _get_client(openai_api_key: str | None = None) -> AsyncOpenAI:
+    key = (openai_api_key or settings.OPENAI_API_KEY or "").strip()
+    return AsyncOpenAI(api_key=key)
 
 
 # ─────────────────── DOWNLOAD DE MÍDIA DA EVOLUTION API ───────────────────
@@ -45,7 +47,7 @@ async def download_media_from_evolution(instance_name: str, message_id: str, evo
 
 # ─────────────────── ÁUDIO → TRANSCRIÇÃO (WHISPER) ───────────────────
 
-async def transcribe_audio_base64(base64_data: str) -> str:
+async def transcribe_audio_base64(base64_data: str, *, openai_api_key: str | None = None) -> str:
     """
     Converte base64 OGG/PTT do WhatsApp em texto usando Whisper.
     """
@@ -63,6 +65,7 @@ async def transcribe_audio_base64(base64_data: str) -> str:
             tmp_file_path = tmp_file.name
             
         with open(tmp_file_path, "rb") as audio_file:
+            client = _get_client(openai_api_key)
             transcript = await client.audio.transcriptions.create(
                 model="whisper-1", 
                 file=audio_file,
@@ -78,7 +81,7 @@ async def transcribe_audio_base64(base64_data: str) -> str:
 
 # ─────────────────── IMAGEM → DESCRIÇÃO (GPT-4o VISION) ───────────────────
 
-async def describe_image_base64(base64_data: str, context: str = "") -> str:
+async def describe_image_base64(base64_data: str, context: str = "", *, openai_api_key: str | None = None) -> str:
     """
     Usa GPT-4o Vision para descrever/interpretar uma imagem recebida.
     O contexto pode incluir instruções como o system prompt do tenant.
@@ -90,6 +93,7 @@ async def describe_image_base64(base64_data: str, context: str = "") -> str:
         base64_data = base64_data.split(",")[1]
     
     try:
+        client = _get_client(openai_api_key)
         response = await client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -124,7 +128,7 @@ async def describe_image_base64(base64_data: str, context: str = "") -> str:
 
 # ─────────────────── DOCUMENTO/PDF → EXTRAÇÃO DE TEXTO ───────────────────
 
-async def extract_document_text(base64_data: str, filename: str = "", mimetype: str = "") -> str:
+async def extract_document_text(base64_data: str, filename: str = "", mimetype: str = "", *, openai_api_key: str | None = None) -> str:
     """
     Usa GPT-4o para extrair/resumir o conteúdo de um documento.
     Para PDFs, envia como imagem das páginas; para texto, decodifica diretamente.
@@ -136,6 +140,8 @@ async def extract_document_text(base64_data: str, filename: str = "", mimetype: 
         base64_data = base64_data.split(",")[1]
     
     try:
+        client = _get_client(openai_api_key)
+
         # Para arquivos de texto simples, decodificar diretamente
         if mimetype and ("text" in mimetype or mimetype.endswith("csv")):
             text_content = base64.b64decode(base64_data).decode("utf-8", errors="ignore")
