@@ -186,6 +186,7 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
                     message_id,
                     evolution_url=evt_url,
                     evolution_api_key=evt_key,
+                    remote_jid=remote_jid,
                 )
                 if base64_data:
                     print(f"[Media] Base64 baixado via API - {len(base64_data)} chars")
@@ -319,7 +320,15 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
         sender_type="lead",
         content=text,
         media_url=media_url,
-        media_type=media_type
+        media_type=media_type,
+        metadata_json={
+            "evolution": {
+                "instance": instance_name,
+                "event": event_type,
+                "remoteJid": remote_jid,
+                "messageId": message_id,
+            }
+        },
     )
     db.add(new_message)
     db.commit()

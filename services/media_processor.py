@@ -14,7 +14,7 @@ client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 # ─────────────────── DOWNLOAD DE MÍDIA DA EVOLUTION API ───────────────────
 
-async def download_media_from_evolution(instance_name: str, message_id: str, evolution_url: str | None = None, evolution_api_key: str | None = None) -> str:
+async def download_media_from_evolution(instance_name: str, message_id: str, evolution_url: str | None = None, evolution_api_key: str | None = None, remote_jid: str | None = None) -> str:
     """Baixa a mídia (base64) pela Evolution API usando o ID da mensagem.
 
     Observação: alguns tenants podem ter URL/chave específicas; por isso aceitamos overrides.
@@ -27,13 +27,11 @@ async def download_media_from_evolution(instance_name: str, message_id: str, evo
         "apikey": api_key,
         "Content-Type": "application/json"
     }
-    payload = {
-        "message": {
-            "key": {
-                "id": message_id
-            }
-        }
-    }
+    key = {"id": message_id}
+    if remote_jid:
+        key["remoteJid"] = remote_jid
+
+    payload = {"message": {"key": key}}
     
     async with httpx.AsyncClient() as http_client:
         response = await http_client.post(url, json=payload, headers=headers, timeout=30.0)
