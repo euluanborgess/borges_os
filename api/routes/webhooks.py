@@ -146,6 +146,11 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
     
     if not text and not is_media:
         return {"status": "no_text_or_media_ignored"}
+
+    # Se for mídia mas não conseguimos gerar URL/base64, ainda assim registramos a mensagem
+    # com um placeholder de conteúdo para aparecer no chat.
+    if is_media and not text:
+        text = "📎 Mídia recebida"
     
     # ─────────────────── PROCESSAR MÍDIA ───────────────────
     message_id = key.get("id")
@@ -164,10 +169,26 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
         if not base64_data:
             base64_data = msg_obj.get("message", {}).get("base64", "") if isinstance(msg_obj.get("message"), dict) else ""
         
+        # Fallback: tentar baixar base64 via Evolution API usando o ID da mensagem
+        if not message_id:
+            # Evolution pode trazer o id em campos alternativos
+            message_id = (key or {}).get("id") or msg_obj.get("id") or msg_obj.get("messageId")
+
         if not base64_data and message_id:
             try:
-                base64_data = await download_media_from_evolution(tenant.evolution_instance_id, message_id)
-                print(f"[Media] Base64 baixado via API - {len(base64_data)} chars")
+                import os
+                integ = tenant.integrations or {}
+                evt_url = integ.get("evolution_api_url") or os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
+                evt_key = integ.get("evolution_api_key") or os.getenv("EVOLUTION_API_KEY", "global-api-key-evolution")
+
+                base64_data = await download_media_from_evolution(
+                    tenant.evolution_instance_id,
+                    message_id,
+                    evolution_url=evt_url,
+                    evolution_api_key=evt_key,
+                )
+                if base64_data:
+                    print(f"[Media] Base64 baixado via API - {len(base64_data)} chars")
             except Exception as e:
                 print(f"[Media Error] Falha ao baixar mídia: {e}")
         
@@ -184,9 +205,11 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
             }
             ext = ext_map.get(media_mimetype, "bin")
             filename = f"{uuid_mod.uuid4().hex[:12]}_{media_type}.{ext}"
+            # Garantir pasta
+            os.makedirs("media_storage", exist_ok=True)
             filepath = os.path.join("media_storage", filename)
             try:
-                file_bytes = b64module.b64decode(base64_data)
+                file_bytes = b64module.b64decode(base64_data.split(",")[-1])
                 with open(filepath, "wb") as f:
                     f.write(file_bytes)
                 media_url = f"/media/{filename}"

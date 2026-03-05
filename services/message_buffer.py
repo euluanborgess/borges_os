@@ -11,20 +11,26 @@ def handle_incoming_message(tenant_id: str, lead_id: str, message_text: str):
     """
     redis_key = f"buffer:{tenant_id}:{lead_id}"
     
-    # Adicionar mensagem na lista do Redis
-    length = redis_client.rpush(redis_key, message_text)
-    
-    # Se formos o primeiro a inserir, agenda o processamento
-    if length == 1:
-        # Coloca a expiração para não sujar o redis caso a task falhe
-        redis_client.expire(redis_key, BUFFER_TIME * 3)
-        
-        # Despacha para processamento assíncrono em background
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(deferred_lead_buffer(tenant_id, lead_id))
-        except RuntimeError:
-            pass
+    try:
+        # Adicionar mensagem na lista do Redis
+        length = redis_client.rpush(redis_key, message_text)
+
+        # Se formos o primeiro a inserir, agenda o processamento
+        if length == 1:
+            # Coloca a expiração para não sujar o redis caso a task falhe
+            redis_client.expire(redis_key, BUFFER_TIME * 3)
+
+            # Despacha para processamento assíncrono em background
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(deferred_lead_buffer(tenant_id, lead_id))
+            except RuntimeError:
+                pass
+    except Exception as e:
+        # DEV-safe behavior: if Redis is down, don't crash the webhook.
+        # We still store the inbound message in DB in the webhook route.
+        print(f"[Buffer] Redis indisponível — IA/buffer desativado para esta mensagem. Erro: {e}")
+        return
 
 async def deferred_lead_buffer(tenant_id: str, lead_id: str):
     """Aguarda o buffer e depois envia para a fila de processamento (em thread separada para não travar o loop)."""
