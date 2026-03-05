@@ -1,7 +1,8 @@
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    DATABASE_URL: str
+    # Default to SQLite for local dev/test. Production should override via .env / env vars.
+    DATABASE_URL: str = "sqlite:///./borges_os.db"
     REDIS_URL: str = "redis://localhost:6379/0"
     OPENAI_API_KEY: str = ""
     LLM_MODEL: str = "gpt-4.1-mini"
