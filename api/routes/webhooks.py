@@ -14,8 +14,15 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
     """
     payload = await request.json()
 
-    event_type = payload.get("event")
+    event_type_raw = payload.get("event") or ""
+    event_type = str(event_type_raw).strip().lower().replace("_", ".")
     instance_name = payload.get("instance")
+
+    # Normalize common Evolution variants
+    if event_type in ("messages.upsert", "messages.upsert."):
+        event_type = "messages.upsert"
+    if event_type in ("connection.update", "connection.update."):
+        event_type = "connection.update"
 
     tenant = db.query(Tenant).filter(Tenant.evolution_instance_id == instance_name).first()
     # Fallback caso evolution_instance_id nao tenha sido salvo
