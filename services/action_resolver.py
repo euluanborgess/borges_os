@@ -89,6 +89,36 @@ class ActionResolver:
                     except Exception as e:
                         print(f"Falha ao criar tasks de onboarding: {e}")
 
+                    # Generate contract (minimal v1): save a filled template to /media
+                    try:
+                        import os
+                        from datetime import datetime
+                        from models import Tenant
+                        tenant = self.db.query(Tenant).filter(Tenant.id == self.tenant_id).first()
+                        if tenant:
+                            os.makedirs("media_storage/contracts", exist_ok=True)
+                            tpl = tenant.contract_template or (
+                                "CONTRATO - {tenant_name}\n\nCliente: {lead_name}\nWhatsApp: {lead_phone}\n\nValor: R$ {value}\nData: {date}\n\n(Template inicial - editar conforme necessário)\n"
+                            )
+                            filled = tpl.format(
+                                tenant_name=tenant.name,
+                                lead_name=self.lead.name or "Cliente",
+                                lead_phone=self.lead.phone,
+                                value=(self.lead.closed_value or self.lead.estimated_value or 0),
+                                date=datetime.now().strftime("%d/%m/%Y"),
+                            )
+                            fname = f"{self.lead_id}.txt"
+                            fpath = os.path.join("media_storage", "contracts", fname)
+                            with open(fpath, "w", encoding="utf-8") as f:
+                                f.write(filled)
+
+                            # Store link in profile_data for UI usage
+                            profile = dict(self.lead.profile_data) if self.lead.profile_data else {}
+                            profile["contract_url"] = f"/media/contracts/{fname}"
+                            self.lead.profile_data = profile
+                    except Exception as e:
+                        print(f"Falha ao gerar contrato: {e}")
+
                     # Send welcome message (best-effort)
                     try:
                         from models import Tenant
