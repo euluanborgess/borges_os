@@ -44,6 +44,13 @@ def get_leads(db: Session = Depends(get_db), current_user: User = Depends(get_cu
             "last_message_at": last_msg.created_at.isoformat() if last_msg and last_msg.created_at else None,
             "last_message_media_type": last_msg.media_type if last_msg else None,
             "profile_data": pdata,
+            "email": l.email,
+            "origin": l.origin,
+            "responsible": l.responsible,
+            "next_step": l.next_step,
+            "estimated_value": l.estimated_value or 0,
+            "closed_value": l.closed_value or 0,
+            "last_contact_at": l.last_contact_at.isoformat() if l.last_contact_at else None,
             "updated_at": ts.isoformat() if ts else None
         })
     return {"status": "success", "data": results}
@@ -79,6 +86,12 @@ class LeadUpdateInput(BaseModel):
     temperature: Optional[str] = None
     score: Optional[int] = None
     tags: Optional[list[str]] = None
+    email: Optional[str] = None
+    origin: Optional[str] = None
+    responsible: Optional[str] = None
+    next_step: Optional[str] = None
+    estimated_value: Optional[float] = None
+    closed_value: Optional[float] = None
 
 @router.put("/leads/{lead_id}")
 def update_lead(lead_id: str, payload: LeadUpdateInput, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -96,6 +109,18 @@ def update_lead(lead_id: str, payload: LeadUpdateInput, db: Session = Depends(ge
         lead.score = payload.score
     if payload.tags is not None:
         lead.tags = payload.tags
+    if payload.email is not None:
+        lead.email = payload.email
+    if payload.origin is not None:
+        lead.origin = payload.origin
+    if payload.responsible is not None:
+        lead.responsible = payload.responsible
+    if payload.next_step is not None:
+        lead.next_step = payload.next_step
+    if payload.estimated_value is not None:
+        lead.estimated_value = payload.estimated_value
+    if payload.closed_value is not None:
+        lead.closed_value = payload.closed_value
 
     db.commit()
     return {"status": "success"}

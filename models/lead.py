@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -20,7 +20,16 @@ class Lead(Base):
     
     # CRM Profile construído pela IA no decorrer da conversa
     profile_data = Column(JSON, default=dict) # {"empresa": "X", "orcamento": "10k"}
-    
+
+    # CRM fields (v1)
+    email = Column(String, nullable=True)
+    origin = Column(String, default="whatsapp")  # whatsapp, instagram, meta_ads, organico...
+    responsible = Column(String, nullable=True)  # SDR/Closer name/id (simple for v1)
+    next_step = Column(String, nullable=True)
+    estimated_value = Column(Float, default=0.0)
+    closed_value = Column(Float, default=0.0)
+    last_contact_at = Column(DateTime(timezone=True), nullable=True)
+
     pipeline_stage = Column(String, default="novo")
     
     # Handoff flag
