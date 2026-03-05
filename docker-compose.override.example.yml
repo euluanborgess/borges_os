@@ -1,0 +1,6 @@
+# Optional override example: bind API to localhost only
+# Copy to docker-compose.override.yml to apply.
+services:
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"
