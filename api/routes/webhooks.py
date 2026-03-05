@@ -205,10 +205,23 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
             # Salvar o arquivo no disco e gerar URL estática
             import base64 as b64module, os, uuid as uuid_mod
             ext_map = {
-                "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/opus": "ogg",
-                "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
+                # audio
+                "audio/ogg": "ogg",
+                "audio/mpeg": "mp3",
+                "audio/mp4": "m4a",
+                "audio/opus": "ogg",
+                "audio/wav": "wav",
+                # images
+                "image/jpeg": "jpg",
+                "image/png": "png",
+                "image/webp": "webp",
+                "image/gif": "gif",
+                # video
                 "video/mp4": "mp4",
-                "application/pdf": "pdf", "application/msword": "doc",
+                "video/quicktime": "mov",
+                # documents
+                "application/pdf": "pdf",
+                "application/msword": "doc",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
             }
             ext = ext_map.get(media_mimetype, "bin")

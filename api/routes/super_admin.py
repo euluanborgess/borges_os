@@ -369,7 +369,7 @@ async def connect_whatsapp_evolution(
                         "enabled": True,
                         "url": f"{(integ.get('public_base_url') or os.getenv('PUBLIC_BASE_URL') or 'http://localhost:8000').strip().rstrip('/')}/api/v1/webhooks/evolution",
                         "webhookByEvents": False,
-                        "webhookBase64": False,
+                        "webhookBase64": True,
                         "events": ["MESSAGES_UPSERT", "CONNECTION_UPDATE"]
                     }
                 },
