@@ -3,7 +3,6 @@ version: '3.8'
 services:
   db:
     image: postgres:15-alpine
-    container_name: borges_db
     environment:
       POSTGRES_USER: borges
       POSTGRES_PASSWORD: borgespassword
@@ -15,13 +14,11 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: redis
     ports:
       - "6379:6379"
 
   evolution_api:
     image: evoapicloud/evolution-api:latest
-    container_name: evolution_api
     restart: always
     ports:
       - "8080:8080"
@@ -30,7 +27,7 @@ services:
       - DOCKER_ENV=true
       - LOG_LEVEL=CLIENT,ERROR,INFO
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_CONNECTION_URI=postgresql://borges:borgespassword@borges_db:5432/borges_os?schema=evolution
+      - DATABASE_CONNECTION_URI=postgresql://borges:borgespassword@db:5432/borges_os?schema=evolution
       - DATABASE_CONNECTION_CLIENT_NAME=evolution_api
       - CACHE_REDIS_ENABLED=true
       - CACHE_REDIS_URI=redis://redis:6379/1
@@ -42,6 +39,25 @@ services:
     depends_on:
       - db
       - redis
+
+  api:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql://borges:borgespassword@db:5432/borges_os
+      - REDIS_URL=redis://redis:6379/0
+      # Optional defaults (override per tenant in UI)
+      - EVOLUTION_API_URL=http://evolution_api:8080
+      - EVOLUTION_API_KEY=global-api-key-evolution
+      - LLM_MODEL=gpt-4.1-mini
+      # Set this in your environment or .env file (do NOT commit secrets)
+      - OPENAI_API_KEY=${OPENAI_API_KEY-}
+      - SECRET_KEY=${SECRET_KEY-changeit}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+      - evolution_api
 
 volumes:
   postgres_data:
