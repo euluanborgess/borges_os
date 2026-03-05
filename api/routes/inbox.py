@@ -1,7 +1,10 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+import asyncio
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from typing import Optional
 from core.database import get_db
-from models import Lead, Message, User
+from models import Lead, Message, User, Tenant
 from services.websocket_manager import manager
 from api.deps import get_current_user
 from jose import jwt, JWTError
@@ -41,6 +44,13 @@ def get_leads(db: Session = Depends(get_db), current_user: User = Depends(get_cu
             "last_message_at": last_msg.created_at.isoformat() if last_msg and last_msg.created_at else None,
             "last_message_media_type": last_msg.media_type if last_msg else None,
             "profile_data": pdata,
+            "email": l.email,
+            "origin": l.origin,
+            "responsible": l.responsible,
+            "next_step": l.next_step,
+            "estimated_value": l.estimated_value or 0,
+            "closed_value": l.closed_value or 0,
+            "last_contact_at": l.last_contact_at.isoformat() if l.last_contact_at else None,
             "updated_at": ts.isoformat() if ts else None
         })
     return {"status": "success", "data": results}
@@ -69,6 +79,51 @@ def get_messages(lead_id: str, db: Session = Depends(get_db), current_user: User
             "created_at": m.created_at.isoformat() if m.created_at else None
         })
     return {"status": "success", "data": results}
+
+
+class LeadUpdateInput(BaseModel):
+    pipeline_stage: Optional[str] = None
+    temperature: Optional[str] = None
+    score: Optional[int] = None
+    tags: Optional[list[str]] = None
+    email: Optional[str] = None
+    origin: Optional[str] = None
+    responsible: Optional[str] = None
+    next_step: Optional[str] = None
+    estimated_value: Optional[float] = None
+    closed_value: Optional[float] = None
+
+@router.put("/leads/{lead_id}")
+def update_lead(lead_id: str, payload: LeadUpdateInput, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    tenant_id = current_user.tenant_id
+    lead = db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
+    if not lead:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if payload.pipeline_stage is not None:
+        lead.pipeline_stage = payload.pipeline_stage
+    if payload.temperature is not None:
+        lead.temperature = payload.temperature
+    if payload.score is not None:
+        lead.score = payload.score
+    if payload.tags is not None:
+        lead.tags = payload.tags
+    if payload.email is not None:
+        lead.email = payload.email
+    if payload.origin is not None:
+        lead.origin = payload.origin
+    if payload.responsible is not None:
+        lead.responsible = payload.responsible
+    if payload.next_step is not None:
+        lead.next_step = payload.next_step
+    if payload.estimated_value is not None:
+        lead.estimated_value = payload.estimated_value
+    if payload.closed_value is not None:
+        lead.closed_value = payload.closed_value
+
+    db.commit()
+    return {"status": "success"}
 
 
 @router.post("/leads/{lead_id}/read")
@@ -155,21 +210,49 @@ async def inbox_websocket(websocket: WebSocket, token: str):
             data = await websocket.receive_json()
             if data.get("action") == "send_message":
                 lead_id = data.get("lead_id")
-                content = data.get("content")
-                
+                content = (data.get("content") or "").strip()
+                if not lead_id or not content:
+                    continue
+
                 db = SessionLocal()
                 try:
+                    lead = db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
+                    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+                    if not lead or not tenant:
+                        continue
+
+                    # Save message in DB
                     new_msg = Message(
                         tenant_id=tenant_id,
                         lead_id=lead_id,
                         sender_type="human",
-                        content=content
+                        content=content,
                     )
                     db.add(new_msg)
                     db.commit()
+
+                    # Send to WhatsApp (best-effort)
+                    try:
+                        from services.evolution_sender import send_whatsapp_message
+                        integ = tenant.integrations or {}
+                        evt_url = integ.get("evolution_api_url")
+                        evt_key = integ.get("evolution_api_key")
+                        # Evolution accepts plain numbers; keep it consistent with stored lead.phone
+                        asyncio.create_task(
+                            send_whatsapp_message(
+                                tenant.evolution_instance_id,
+                                lead.phone,
+                                content,
+                                evolution_url=evt_url,
+                                evolution_api_key=evt_key,
+                            )
+                        )
+                    except Exception as e:
+                        print(f"[Inbox] Falha ao enviar via Evolution: {e}")
+
                 finally:
                     db.close()
-                
+
                 await manager.broadcast_to_tenant(tenant_id, {
                     "type": "inbox_update",
                     "lead_id": lead_id,

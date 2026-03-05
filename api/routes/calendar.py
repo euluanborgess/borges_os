@@ -55,10 +55,16 @@ def list_events(db: Session = Depends(get_db), current_user: User = Depends(get_
             }
         })
         
-    return {"events": results}
+    return {"status": "success", "data": results}
+
+class EventCreateInput(BaseModel):
+    lead_id: str
+    title: str
+    start_time: datetime
+    end_time: datetime
 
 @router.post("/events")
-def create_event(lead_id: str, title: str, start_time: datetime, end_time: datetime, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def create_event(payload: EventCreateInput, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Cria manualmente ou via Painel um evento para um cliente.
     A IA também pode ter acesso a essa rota via Actions no futuro.
@@ -66,15 +72,35 @@ def create_event(lead_id: str, title: str, start_time: datetime, end_time: datet
     tenant_id = current_user.tenant_id
     new_event = Event(
         tenant_id=tenant_id,
-        lead_id=lead_id,
-        title=title,
-        start_time=start_time,
-        end_time=end_time
+        lead_id=payload.lead_id,
+        title=payload.title,
+        start_time=payload.start_time,
+        end_time=payload.end_time
     )
     db.add(new_event)
     db.commit()
     db.refresh(new_event)
-    return {"status": "success", "event": new_event}
+
+    return {
+        "status": "success",
+        "data": {
+            "id": new_event.id,
+            "title": new_event.title,
+            "start_time": new_event.start_time.isoformat() if new_event.start_time else None,
+            "end_time": new_event.end_time.isoformat() if new_event.end_time else None,
+        }
+    }
+
+@router.delete("/events/{event_id}")
+def delete_event(event_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    tenant_id = current_user.tenant_id
+    event = db.query(Event).filter(Event.id == event_id, Event.tenant_id == tenant_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Agendamento não encontrado.")
+    db.delete(event)
+    db.commit()
+    return {"status": "success"}
+
 
 @router.put("/events/{event_id}")
 def update_event(
@@ -104,4 +130,4 @@ def update_event(
     db.commit()
     db.refresh(event)
     
-    return {"status": "success", "message": "Agendamento atualizado com sucesso."}
+    return {"status": "success", "data": {"id": event.id}}

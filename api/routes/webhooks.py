@@ -13,10 +13,17 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
     Suporta: texto, áudio, imagem, documento, sticker.
     """
     payload = await request.json()
-    
-    event_type = payload.get("event")
+
+    event_type_raw = payload.get("event") or ""
+    event_type = str(event_type_raw).strip().lower().replace("_", ".")
     instance_name = payload.get("instance")
-    
+
+    # Normalize common Evolution variants
+    if event_type in ("messages.upsert", "messages.upsert."):
+        event_type = "messages.upsert"
+    if event_type in ("connection.update", "connection.update."):
+        event_type = "connection.update"
+
     tenant = db.query(Tenant).filter(Tenant.evolution_instance_id == instance_name).first()
     # Fallback caso evolution_instance_id nao tenha sido salvo
     if not tenant and instance_name and instance_name.startswith("borges_"):
@@ -186,6 +193,7 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
                     message_id,
                     evolution_url=evt_url,
                     evolution_api_key=evt_key,
+                    remote_jid=remote_jid,
                 )
                 if base64_data:
                     print(f"[Media] Base64 baixado via API - {len(base64_data)} chars")
@@ -197,10 +205,23 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
             # Salvar o arquivo no disco e gerar URL estática
             import base64 as b64module, os, uuid as uuid_mod
             ext_map = {
-                "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/opus": "ogg",
-                "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
+                # audio
+                "audio/ogg": "ogg",
+                "audio/mpeg": "mp3",
+                "audio/mp4": "m4a",
+                "audio/opus": "ogg",
+                "audio/wav": "wav",
+                # images
+                "image/jpeg": "jpg",
+                "image/png": "png",
+                "image/webp": "webp",
+                "image/gif": "gif",
+                # video
                 "video/mp4": "mp4",
-                "application/pdf": "pdf", "application/msword": "doc",
+                "video/quicktime": "mov",
+                # documents
+                "application/pdf": "pdf",
+                "application/msword": "doc",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
             }
             ext = ext_map.get(media_mimetype, "bin")
@@ -319,7 +340,15 @@ async def evolution_webhook(request: Request, db: Session = Depends(get_db)):
         sender_type="lead",
         content=text,
         media_url=media_url,
-        media_type=media_type
+        media_type=media_type,
+        metadata_json={
+            "evolution": {
+                "instance": instance_name,
+                "event": event_type,
+                "remoteJid": remote_jid,
+                "messageId": message_id,
+            }
+        },
     )
     db.add(new_message)
     db.commit()
