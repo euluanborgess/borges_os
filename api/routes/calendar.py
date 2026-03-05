@@ -91,6 +91,17 @@ def create_event(payload: EventCreateInput, db: Session = Depends(get_db), curre
         }
     }
 
+@router.delete("/events/{event_id}")
+def delete_event(event_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    tenant_id = current_user.tenant_id
+    event = db.query(Event).filter(Event.id == event_id, Event.tenant_id == tenant_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Agendamento não encontrado.")
+    db.delete(event)
+    db.commit()
+    return {"status": "success"}
+
+
 @router.put("/events/{event_id}")
 def update_event(
     event_id: str, 
@@ -119,4 +130,4 @@ def update_event(
     db.commit()
     db.refresh(event)
     
-    return {"status": "success", "message": "Agendamento atualizado com sucesso."}
+    return {"status": "success", "data": {"id": event.id}}
