@@ -124,12 +124,18 @@ O SEU OBJETIVO PRINCIPAL NESTA CONVERSA É: {agent_goal}
                 continue # Evita passar a mensagem atual repetida duas vezes (no history e no latest_message)
             history.append({"sender_type": m.sender_type, "content": m.content})
         
+        integ = tenant.integrations or {} if tenant else {}
+        openai_key = integ.get("openai_api_key")
+        chosen_model = (ai_c.get("llm_model") or ai_c.get("model")) if ai_c else None
+
         resultado_sdr = asyncio.run(
             process_conversation(
                 tenant_context=tenant_context,
                 lead_profile=lead_profile,
                 conversation_history=history,
-                latest_message=consolidated_text
+                latest_message=consolidated_text,
+                openai_api_key=openai_key,
+                model=chosen_model,
             )
         )
         print(f"RESPOSTA IA: {resultado_sdr['reply_text']}")
@@ -166,8 +172,15 @@ O SEU OBJETIVO PRINCIPAL NESTA CONVERSA É: {agent_goal}
                 destination_number = lead.phone
                 
                 # Roda o envio de forma bloqueante para a thread do worker, garantindo que dispare antes de morrer
+                integ = tenant.integrations or {}
                 asyncio.run(
-                    send_whatsapp_message(tenant.evolution_instance_id, destination_number, reply)
+                    send_whatsapp_message(
+                        tenant.evolution_instance_id,
+                        destination_number,
+                        reply,
+                        evolution_url=integ.get("evolution_api_url"),
+                        evolution_api_key=integ.get("evolution_api_key"),
+                    )
                 )
 
                 # Dispara evento WebSockets para a UI (InBox) ser notificada em tempo real
