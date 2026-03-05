@@ -1,7 +1,8 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+import asyncio
 from sqlalchemy.orm import Session
 from core.database import get_db
-from models import Lead, Message, User
+from models import Lead, Message, User, Tenant
 from services.websocket_manager import manager
 from api.deps import get_current_user
 from jose import jwt, JWTError
@@ -155,21 +156,49 @@ async def inbox_websocket(websocket: WebSocket, token: str):
             data = await websocket.receive_json()
             if data.get("action") == "send_message":
                 lead_id = data.get("lead_id")
-                content = data.get("content")
-                
+                content = (data.get("content") or "").strip()
+                if not lead_id or not content:
+                    continue
+
                 db = SessionLocal()
                 try:
+                    lead = db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
+                    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+                    if not lead or not tenant:
+                        continue
+
+                    # Save message in DB
                     new_msg = Message(
                         tenant_id=tenant_id,
                         lead_id=lead_id,
                         sender_type="human",
-                        content=content
+                        content=content,
                     )
                     db.add(new_msg)
                     db.commit()
+
+                    # Send to WhatsApp (best-effort)
+                    try:
+                        from services.evolution_sender import send_whatsapp_message
+                        integ = tenant.integrations or {}
+                        evt_url = integ.get("evolution_api_url")
+                        evt_key = integ.get("evolution_api_key")
+                        # Evolution accepts plain numbers; keep it consistent with stored lead.phone
+                        asyncio.create_task(
+                            send_whatsapp_message(
+                                tenant.evolution_instance_id,
+                                lead.phone,
+                                content,
+                                evolution_url=evt_url,
+                                evolution_api_key=evt_key,
+                            )
+                        )
+                    except Exception as e:
+                        print(f"[Inbox] Falha ao enviar via Evolution: {e}")
+
                 finally:
                     db.close()
-                
+
                 await manager.broadcast_to_tenant(tenant_id, {
                     "type": "inbox_update",
                     "lead_id": lead_id,
