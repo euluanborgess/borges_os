@@ -1,6 +1,8 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 import asyncio
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from typing import Optional
 from core.database import get_db
 from models import Lead, Message, User, Tenant
 from services.websocket_manager import manager
@@ -70,6 +72,33 @@ def get_messages(lead_id: str, db: Session = Depends(get_db), current_user: User
             "created_at": m.created_at.isoformat() if m.created_at else None
         })
     return {"status": "success", "data": results}
+
+
+class LeadUpdateInput(BaseModel):
+    pipeline_stage: Optional[str] = None
+    temperature: Optional[str] = None
+    score: Optional[int] = None
+    tags: Optional[list[str]] = None
+
+@router.put("/leads/{lead_id}")
+def update_lead(lead_id: str, payload: LeadUpdateInput, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    tenant_id = current_user.tenant_id
+    lead = db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == tenant_id).first()
+    if not lead:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if payload.pipeline_stage is not None:
+        lead.pipeline_stage = payload.pipeline_stage
+    if payload.temperature is not None:
+        lead.temperature = payload.temperature
+    if payload.score is not None:
+        lead.score = payload.score
+    if payload.tags is not None:
+        lead.tags = payload.tags
+
+    db.commit()
+    return {"status": "success"}
 
 
 @router.post("/leads/{lead_id}/read")

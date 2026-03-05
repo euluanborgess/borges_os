@@ -293,7 +293,9 @@
             const txt = (lead.last_message && lead.last_message !== "Conversa iniciada") ? lead.last_message.substring(0, 70) + '...' : 'Aguardando processamento de linguagem...';
 
             return `
-                <div class="lead-card p-4 rounded-xl cursor-pointer transition-all duration-200 group ${hoverBorder}" onclick='openLeadModal(${leadStr})' 
+                <div class="lead-card p-4 rounded-xl cursor-pointer transition-all duration-200 group ${hoverBorder}" 
+                    draggable="true" ondragstart="onLeadDragStart(event, '${lead.id}')" 
+                    onclick='openLeadModal(${leadStr})' 
                     style="background: rgba(255,255,255,0.04); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.07); box-shadow: 0 2px 12px rgba(0,0,0,0.2);">
                     
                     <div class="flex items-start justify-between mb-3">
@@ -372,12 +374,42 @@
                         </div>
 
                         <!-- Cards -->
-                        <div class="flex-1 overflow-y-auto space-y-3 pr-1 content-area custom-scroll" style="min-height: 0;" id="kanban-stage-${stage}">
+                        <div class="flex-1 overflow-y-auto space-y-3 pr-1 content-area custom-scroll" style="min-height: 0;" id="kanban-stage-${stage}" ondragover="onStageDragOver(event)" ondrop="onStageDrop(event, '${stage}')">
                             <!-- Skeleton wait before real data... -->
                         </div>
                     </div>
                 `;
             });
+        }
+
+        // --- Drag & drop Kanban (manual stage changes) ---
+        let draggedLeadId = null;
+
+        function onLeadDragStart(ev, leadId) {
+            draggedLeadId = leadId;
+            try { ev.dataTransfer.setData('text/plain', leadId); } catch (e) {}
+        }
+
+        function onStageDragOver(ev) {
+            ev.preventDefault();
+        }
+
+        async function onStageDrop(ev, stage) {
+            ev.preventDefault();
+            const leadId = (ev.dataTransfer && ev.dataTransfer.getData('text/plain')) || draggedLeadId;
+            if (!leadId) return;
+
+            try {
+                await fetchWithAuth(`/api/v1/ws/inbox/leads/${leadId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pipeline_stage: stage })
+                });
+            } catch (e) {}
+
+            // Refresh both views
+            fetchKanbanData();
+            fetchInboxLeads();
         }
 
         async function fetchKanbanData() {
