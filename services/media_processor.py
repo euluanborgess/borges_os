@@ -14,14 +14,17 @@ client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 # ─────────────────── DOWNLOAD DE MÍDIA DA EVOLUTION API ───────────────────
 
-async def download_media_from_evolution(instance_name: str, message_id: str) -> str:
+async def download_media_from_evolution(instance_name: str, message_id: str, evolution_url: str | None = None, evolution_api_key: str | None = None) -> str:
+    """Baixa a mídia (base64) pela Evolution API usando o ID da mensagem.
+
+    Observação: alguns tenants podem ter URL/chave específicas; por isso aceitamos overrides.
     """
-    Baixa a mídia (base64) diretamente pela Evolution API usando o ID da mensagem.
-    Funciona para áudio, imagem, documento, sticker, vídeo etc.
-    """
-    url = f"{settings.EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/{instance_name}"
+    base_url = (evolution_url or settings.EVOLUTION_API_URL).strip().rstrip('/')
+    api_key = (evolution_api_key or settings.EVOLUTION_API_KEY).strip()
+
+    url = f"{base_url}/chat/getBase64FromMediaMessage/{instance_name}"
     headers = {
-        "apikey": settings.EVOLUTION_API_KEY,
+        "apikey": api_key,
         "Content-Type": "application/json"
     }
     payload = {
