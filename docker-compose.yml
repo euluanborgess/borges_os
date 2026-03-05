@@ -42,6 +42,9 @@ services:
 
   api:
     build: .
+    # Load local overrides from .env (do NOT commit secrets)
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql://borges:borgespassword@db:5432/borges_os
       - REDIS_URL=redis://redis:6379/0
@@ -49,9 +52,16 @@ services:
       - EVOLUTION_API_URL=http://evolution_api:8080
       - EVOLUTION_API_KEY=global-api-key-evolution
       - LLM_MODEL=gpt-4.1-mini
-      # Set this in your environment or .env file (do NOT commit secrets)
+      # Secrets + public URL
       - OPENAI_API_KEY=${OPENAI_API_KEY-}
       - SECRET_KEY=${SECRET_KEY-changeit}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL-http://localhost:8000}
+      # First-run bootstrap
+      - SEED_ADMIN_ON_STARTUP=${SEED_ADMIN_ON_STARTUP-false}
+      - DEFAULT_TENANT_NAME=${DEFAULT_TENANT_NAME-}
+      - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL-}
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD-}
+      - DEFAULT_ADMIN_FULL_NAME=${DEFAULT_ADMIN_FULL_NAME-}
     ports:
       - "8000:8000"
     depends_on:
