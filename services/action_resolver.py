@@ -63,7 +63,31 @@ class ActionResolver:
         elif action_type == "move_pipeline_stage":
             if value:
                 # Normaliza para lowercase para dar match com o Enum do Frontend
-                self.lead.pipeline_stage = str(value).lower().strip()
+                new_stage = str(value).lower().strip()
+                self.lead.pipeline_stage = new_stage
+
+                # Minimal onboarding automation on close
+                if new_stage in ("fechado", "venda", "closed"):
+                    # Create onboarding tasks
+                    try:
+                        self.db.add(Task(
+                            tenant_id=self.tenant_id,
+                            lead_id=self.lead_id,
+                            title="Onboarding: coletar dados do cliente",
+                            description="Coletar dados necessários e iniciar onboarding.",
+                            assigned_to=self.lead.responsible,
+                            priority="alta",
+                        ))
+                        self.db.add(Task(
+                            tenant_id=self.tenant_id,
+                            lead_id=self.lead_id,
+                            title="Onboarding: enviar boas-vindas",
+                            description="Enviar mensagem de boas-vindas pós-fechamento.",
+                            assigned_to=self.lead.responsible,
+                            priority="media",
+                        ))
+                    except Exception as e:
+                        print(f"Falha ao criar tasks de onboarding: {e}")
                 
         elif action_type == "create_task":
             # Exemplo action: type="create_task", key="Lembrete", value="Ligar amanha"
