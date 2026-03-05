@@ -63,7 +63,81 @@ class ActionResolver:
         elif action_type == "move_pipeline_stage":
             if value:
                 # Normaliza para lowercase para dar match com o Enum do Frontend
-                self.lead.pipeline_stage = str(value).lower().strip()
+                new_stage = str(value).lower().strip()
+                self.lead.pipeline_stage = new_stage
+
+                # Minimal onboarding automation on close
+                if new_stage in ("fechado", "venda", "closed"):
+                    # Create onboarding tasks
+                    try:
+                        self.db.add(Task(
+                            tenant_id=self.tenant_id,
+                            lead_id=self.lead_id,
+                            title="Onboarding: coletar dados do cliente",
+                            description="Coletar dados necessários e iniciar onboarding.",
+                            assigned_to=self.lead.responsible,
+                            priority="alta",
+                        ))
+                        self.db.add(Task(
+                            tenant_id=self.tenant_id,
+                            lead_id=self.lead_id,
+                            title="Onboarding: enviar boas-vindas",
+                            description="Enviar mensagem de boas-vindas pós-fechamento.",
+                            assigned_to=self.lead.responsible,
+                            priority="media",
+                        ))
+                    except Exception as e:
+                        print(f"Falha ao criar tasks de onboarding: {e}")
+
+                    # Generate contract (minimal v1): save a filled template to /media
+                    try:
+                        import os
+                        from datetime import datetime
+                        from models import Tenant
+                        tenant = self.db.query(Tenant).filter(Tenant.id == self.tenant_id).first()
+                        if tenant:
+                            os.makedirs("media_storage/contracts", exist_ok=True)
+                            tpl = tenant.contract_template or (
+                                "CONTRATO - {tenant_name}\n\nCliente: {lead_name}\nWhatsApp: {lead_phone}\n\nValor: R$ {value}\nData: {date}\n\n(Template inicial - editar conforme necessário)\n"
+                            )
+                            filled = tpl.format(
+                                tenant_name=tenant.name,
+                                lead_name=self.lead.name or "Cliente",
+                                lead_phone=self.lead.phone,
+                                value=(self.lead.closed_value or self.lead.estimated_value or 0),
+                                date=datetime.now().strftime("%d/%m/%Y"),
+                            )
+                            fname = f"{self.lead_id}.txt"
+                            fpath = os.path.join("media_storage", "contracts", fname)
+                            with open(fpath, "w", encoding="utf-8") as f:
+                                f.write(filled)
+
+                            # Store link in profile_data for UI usage
+                            profile = dict(self.lead.profile_data) if self.lead.profile_data else {}
+                            profile["contract_url"] = f"/media/contracts/{fname}"
+                            self.lead.profile_data = profile
+                    except Exception as e:
+                        print(f"Falha ao gerar contrato: {e}")
+
+                    # Send welcome message (best-effort)
+                    try:
+                        from models import Tenant
+                        tenant = self.db.query(Tenant).filter(Tenant.id == self.tenant_id).first()
+                        if tenant and tenant.welcome_message and tenant.evolution_instance_id and self.lead.phone:
+                            import asyncio
+                            from services.evolution_sender import send_whatsapp_message
+                            integ = tenant.integrations or {}
+                            asyncio.run(
+                                send_whatsapp_message(
+                                    tenant.evolution_instance_id,
+                                    self.lead.phone,
+                                    tenant.welcome_message,
+                                    evolution_url=integ.get("evolution_api_url"),
+                                    evolution_api_key=integ.get("evolution_api_key"),
+                                )
+                            )
+                    except Exception as e:
+                        print(f"Falha ao enviar boas-vindas: {e}")
                 
         elif action_type == "create_task":
             # Exemplo action: type="create_task", key="Lembrete", value="Ligar amanha"
