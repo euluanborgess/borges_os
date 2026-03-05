@@ -1,8 +1,8 @@
 # Borges OS - Main Application Entry Point (reload trigger: 2026-02-25T22:50)
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from core.database import get_db
 
@@ -18,6 +18,20 @@ app = FastAPI(
     description="Sistema Operacional de Vendas com IA (Backend)",
     version="1.0.0"
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Fail-safe for critical ingress points.
+
+    Webhooks should never return 500 to upstream providers (they will retry and can amplify failures).
+    For Evolution webhook, we return 200 with an error payload and log the exception.
+    """
+    if request.url.path.startswith("/api/v1/webhooks/evolution"):
+        print(f"[Webhook Error] {exc}")
+        return JSONResponse(status_code=200, content={"status": "error"})
+
+    return JSONResponse(status_code=500, content={"status": "error", "detail": str(exc)})
 
 # Adicionando CORS para o Frontend React futuro
 app.add_middleware(
