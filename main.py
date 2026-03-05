@@ -11,7 +11,7 @@ from pathlib import Path
 # CRITICAL: Initialize Celery properly before importing tasks inside routes
 from core.celery_app import celery_app
 
-from api.routes import webhooks, inbox, calendar, dashboard, config, tasks, auth, super_admin
+from api.routes import webhooks, inbox, calendar, dashboard, config, tasks, auth, super_admin, users
 
 app = FastAPI(
     title="BORGES OS - API",
@@ -37,6 +37,7 @@ app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["metrics"
 app.include_router(config.router, prefix="/api/v1/ws/config", tags=["settings"])
 app.include_router(tasks.router, prefix="/api/v1/ws/tasks", tags=["tasks"])
 app.include_router(super_admin.router, prefix="/api/v1/super", tags=["super_admin"])
+app.include_router(users.router, prefix="/api/v1/ws/users", tags=["users"])
 
 # Ensure local static directories exist (StaticFiles crashes if directory is missing)
 for d in ["public", "frontend", "media_storage"]:
