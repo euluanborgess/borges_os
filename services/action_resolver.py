@@ -88,6 +88,26 @@ class ActionResolver:
                         ))
                     except Exception as e:
                         print(f"Falha ao criar tasks de onboarding: {e}")
+
+                    # Send welcome message (best-effort)
+                    try:
+                        from models import Tenant
+                        tenant = self.db.query(Tenant).filter(Tenant.id == self.tenant_id).first()
+                        if tenant and tenant.welcome_message and tenant.evolution_instance_id and self.lead.phone:
+                            import asyncio
+                            from services.evolution_sender import send_whatsapp_message
+                            integ = tenant.integrations or {}
+                            asyncio.run(
+                                send_whatsapp_message(
+                                    tenant.evolution_instance_id,
+                                    self.lead.phone,
+                                    tenant.welcome_message,
+                                    evolution_url=integ.get("evolution_api_url"),
+                                    evolution_api_key=integ.get("evolution_api_key"),
+                                )
+                            )
+                    except Exception as e:
+                        print(f"Falha ao enviar boas-vindas: {e}")
                 
         elif action_type == "create_task":
             # Exemplo action: type="create_task", key="Lembrete", value="Ligar amanha"
