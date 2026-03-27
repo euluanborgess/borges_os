@@ -1,4 +1,4 @@
-const API_BASE_URL = "http://localhost:8000/api/v1";
+const API_BASE_URL = "/api/v1";
 let currentTenantId = null;
 let currentLeadId = null;
 let ws = null;
@@ -21,11 +21,46 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 });
 
 // ======================================
+// MODAL DE IMAGEM
+// ======================================
+const modal = document.getElementById("image-modal");
+const modalImg = document.getElementById("modal-img");
+const captionText = document.getElementById("modal-caption");
+const span = document.getElementsByClassName("modal-close")[0];
+
+if(span) {
+    span.onclick = function() { modal.style.display = "none"; }
+}
+window.onclick = function(event) {
+    if (event.target == modal) { modal.style.display = "none"; }
+}
+
+function openImageModal(src, caption = "") {
+    modal.style.display = "block";
+    modalImg.src = src;
+    captionText.innerHTML = caption;
+}
+
+// ======================================
+// HELPERS API
+// ======================================
+function getAuthHeaders() {
+    const token = localStorage.getItem('token');
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+// ======================================
 // INBOX & WEBSOCKETS (TEMPO REAL)
 // ======================================
 function connectWebSocket() {
-    // ws://localhost:8000/api/v1/ws/inbox/{tenant_id}
-    const wsUrl = `ws://localhost:8000/api/v1/ws/inbox/${currentTenantId}`;
+    const token = localStorage.getItem('token');
+    if (!token) {
+        console.warn("[WS] Token não encontrado, aguardando login...");
+        return;
+    }
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/inbox/stream?token=${token}`;
+    
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => console.log("[WS] Conectado ao Servidor BORGES OS");
@@ -34,15 +69,15 @@ function connectWebSocket() {
         const data = JSON.parse(event.data);
         console.log("[WS MSG]", data);
 
-        // Se for mensagem de um Lead enviada no whats
-        if (data.type === 'new_message' && data.sender_type === 'lead') {
-            appendMessageToUI(data.lead_id, data.content, 'msg-lead');
-            addOrUpdateLeadSidebar(data.lead_id, data.lead_phone, data.content);
-        }
-
-        // Se a propria IA ou outro sistema enviou
-        if (data.event === 'message_sent_by_human') {
-            appendMessageToUI(data.lead_id, data.content, 'msg-human');
+        if (data.type === 'inbox_update') {
+            const isCurrent = currentLeadId === data.lead_id;
+            if (isCurrent) {
+                appendMessageToUI(data.lead_id, data.message.content, data.message.sender_type === 'lead' ? 'msg-lead' : 'msg-ai', data.message.media_url);
+                if (data.message.media_url && (data.message.media_type === 'image' || data.message.media_type === 'sticker')) {
+                    updateMediaGallery(data.lead_id);
+                }
+            }
+            addOrUpdateLeadSidebar(data.lead_id, data.lead_phone, data.message.content, data.unread_count);
         }
     };
 
@@ -53,53 +88,74 @@ function connectWebSocket() {
 }
 
 // Quando clica num lead na sidebar
-function selectLead(leadId, pbIdElement, phone) {
+async function selectLead(leadId, pbIdElement, phone) {
     currentLeadId = leadId;
 
-    // UI Update
     document.querySelectorAll('.lead-item').forEach(el => el.classList.remove('selected'));
     pbIdElement.classList.add('selected');
 
     document.getElementById('current-lead-name').innerText = `Lead #${leadId.substring(0, 8)}`;
     document.getElementById('current-lead-phone').innerText = phone;
-
     document.getElementById('crm-panel').classList.remove('d-none');
 
-    // Inputs ativados
     document.getElementById('message-input').disabled = false;
     document.getElementById('send-btn').disabled = false;
 
-    // Buscar historico do banco de dados
+    // Buscar historico
     document.getElementById('chat-messages').innerHTML = '';
-    fetch(`${API_BASE_URL}/ws/inbox/messages/${currentTenantId}/${leadId}`)
-        .then(res => res.json())
-        .then(json => {
-            if (json.status === 'success') {
-                json.data.forEach(m => {
-                    // Se for IA, trata visualmente como msg do atendente pra ficar à direita
-                    const cssClass = m.sender_type === 'lead' ? 'msg-lead' : 'msg-human';
-                    appendMessageToUI(leadId, m.content, cssClass);
-                });
-            }
-        });
+    try {
+        const res = await fetch(`${API_BASE_URL}/ws/inbox/messages/${leadId}`, { headers: getAuthHeaders() });
+        const json = await res.json();
+        if (json.status === 'success') {
+            json.data.forEach(m => {
+                const cssClass = m.sender_type === 'lead' ? 'msg-lead' : (m.sender_type === 'ai' ? 'msg-ai' : 'msg-human');
+                appendMessageToUI(leadId, m.content, cssClass, m.media_url);
+            });
+        }
+    } catch(e) { console.error(e); }
+
+    // Carregar Galeria de Mídias
+    updateMediaGallery(leadId);
+    
+    // Marcar como lido
+    fetch(`${API_BASE_URL}/ws/inbox/leads/${leadId}/read`, { method: 'POST', headers: getAuthHeaders() });
 }
 
-// Carregar lista de leads com conversas anteriores no boot
+async function updateMediaGallery(leadId) {
+    const gallery = document.getElementById('crm-media-gallery');
+    try {
+        const res = await fetch(`${API_BASE_URL}/ws/inbox/leads/${leadId}/media`, { headers: getAuthHeaders() });
+        const json = await res.json();
+        
+        if (json.status === 'success' && json.data.images && json.data.images.length > 0) {
+            gallery.innerHTML = '';
+            json.data.images.forEach(m => {
+                const item = document.createElement('div');
+                item.className = 'gallery-item';
+                item.innerHTML = `<img src="${m.media_url}" alt="Mídia">`;
+                item.onclick = () => openImageModal(m.media_url, m.content || "Imagem do Lead");
+                gallery.appendChild(item);
+            });
+        } else {
+            gallery.innerHTML = '<p class="text-muted small">Nenhuma mídia encontrada</p>';
+        }
+    } catch (e) { console.error("Erro galeria", e); }
+}
+
 async function loadInboxLeads() {
     try {
-        const res = await fetch(`${API_BASE_URL}/ws/inbox/leads/${currentTenantId}`);
+        const res = await fetch(`${API_BASE_URL}/ws/inbox/leads`, { headers: getAuthHeaders() });
         const json = await res.json();
         if (json.status === 'success') {
             document.getElementById('leads-list').innerHTML = '';
-            // Ordem reversa pois addOrUpdate dá prepend (joga pra cima)
-            json.data.reverse().forEach(l => {
-                addOrUpdateLeadSidebar(l.id, l.phone, l.last_message);
+            json.data.forEach(l => {
+                addOrUpdateLeadSidebar(l.id, l.phone, l.last_message || "Sem mensagens", l.unread_count);
             });
         }
     } catch (e) { console.error("Erro ao carregar leads", e); }
 }
 
-function addOrUpdateLeadSidebar(leadId, phone, lastMsg) {
+function addOrUpdateLeadSidebar(leadId, phone, lastMsg, unread = 0) {
     const list = document.getElementById('leads-list');
     let item = document.getElementById(`sidebar-lead-${leadId}`);
 
@@ -115,128 +171,98 @@ function addOrUpdateLeadSidebar(leadId, phone, lastMsg) {
     item.querySelector('p').innerText = lastMsg;
 }
 
-function appendMessageToUI(msgLeadId, content, cssClass) {
-    // Só renderiza se for a conversa aberta agora
+function appendMessageToUI(msgLeadId, content, cssClass, mediaUrl = null) {
     if (currentLeadId !== msgLeadId) return;
 
     const chat = document.getElementById('chat-messages');
-
-    // Remover o empty state
     const empty = chat.querySelector('.empty-state');
     if (empty) empty.remove();
 
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${cssClass}`;
-    msgDiv.innerText = content;
-
+    
+    let innerHTML = `<div>${content}</div>`;
+    if (mediaUrl) {
+        if (mediaUrl.match(/\.(jpg|jpeg|png|webp|gif)/i)) {
+            innerHTML += `<img src="${mediaUrl}" class="message-image" onclick="openImageModal('${mediaUrl}', '${content.replace(/'/g, "\\'")}')">`;
+        } else if (mediaUrl.match(/\.(mp3|ogg|wav|m4a)/i)) {
+            innerHTML += `<audio controls src="${mediaUrl}" style="width:100%; margin-top:8px;"></audio>`;
+        } else {
+            innerHTML += `<a href="${mediaUrl}" target="_blank" class="badge" style="margin-top:8px; display:inline-block;">📎 Ver Arquivo</a>`;
+        }
+    }
+    
+    msgDiv.innerHTML = innerHTML;
     chat.appendChild(msgDiv);
-    chat.scrollTop = chat.scrollHeight; // Auto-scroll
+    chat.scrollTop = chat.scrollHeight;
 }
 
-// Enviar msg manual cortando a IA
 document.getElementById('send-btn').addEventListener('click', () => {
     const input = document.getElementById('message-input');
     const text = input.value.trim();
     if (!text || !currentLeadId || !ws) return;
 
-    // Envia o payload via websockets para o Backend lidar
-    const payload = {
+    // Via WebSocket
+    ws.send(JSON.stringify({
         action: "send_message",
         lead_id: currentLeadId,
         content: text
-    };
+    }));
 
-    ws.send(JSON.stringify(payload));
-
-    // Adiciona na propria tela ja
     appendMessageToUI(currentLeadId, text, 'msg-human');
-
-    // Mudar UI do Robô para Humano
     const indicator = document.getElementById('ai-indicator');
     indicator.className = "status-badge human";
     indicator.innerText = "🕵️ Humano";
-
     input.value = "";
 });
 
-// ======================================
-// DASHBOARD VIEW
-// ======================================
 async function loadDashboard() {
     try {
-        const res = await fetch(`${API_BASE_URL}/dashboard/metrics?tenant_id=${currentTenantId}`);
+        const res = await fetch(`${API_BASE_URL}/dashboard/metrics`, { headers: getAuthHeaders() });
         const json = await res.json();
-
         if (json.status === 'success') {
             const data = json.data;
             const grid = document.getElementById('metrics-grid');
             grid.innerHTML = `
-                <div class="metric-card">
-                    <h5>Pendências Manuais</h5>
-                    <div class="value">${data.leads_waiting_human || 0}</div>
-                </div>
-                <div class="metric-card">
-                    <h5>Agendamentos Totais</h5>
-                    <div class="value">${data.total_events || 0}</div>
-                </div>
-                <div class="metric-card">
-                    <h5>Tarefas da Equipe</h5>
-                    <div class="value">${data.pending_activities || 0}</div>
-                </div>
+                <div class="metric-card"><h5>Leads Totais</h5><div class="value">${data.total_leads || 0}</div></div>
+                <div class="metric-card"><h5>Agendamentos</h5><div class="value">${data.total_events || 0}</div></div>
+                <div class="metric-card"><h5>Atendimentos IA</h5><div class="value">${data.ai_messages_count || 0}</div></div>
             `;
         }
-    } catch (e) {
-        console.error("Erro dashboard", e);
-    }
+    } catch (e) { console.error(e); }
 }
 
-// ======================================
-// CALENDAR VIEW
-// ======================================
 async function loadCalendar() {
     try {
-        const res = await fetch(`${API_BASE_URL}/calendar/?tenant_id=${currentTenantId}`);
+        const res = await fetch(`${API_BASE_URL}/calendar/`, { headers: getAuthHeaders() });
         const json = await res.json();
-
         const list = document.getElementById('events-list');
         list.innerHTML = '';
-
         if (json.events && json.events.length > 0) {
             json.events.forEach(ev => {
                 const dateStart = new Date(ev.start_time).toLocaleString();
-                list.innerHTML += `
-                    <div class="metric-card" style="margin-bottom: 12px">
-                        <h5>${dateStart}</h5>
-                        <p style="font-weight: 500">${ev.title}</p>
-                    </div>
-                `;
+                list.innerHTML += `<div class="metric-card" style="margin-bottom: 12px"><h5>${dateStart}</h5><p>${ev.title}</p></div>`;
             });
-        } else {
-            list.innerHTML = 'Nenhum evento agendado ainda. Deixe a IA vender por você!';
-        }
-    } catch (e) {
-        console.error("Erro calendário", e);
-    }
+        } else { list.innerHTML = 'Nenhum agendamento.'; }
+    } catch (e) { console.error(e); }
 }
 
-// ======================================
-// INICIALIZAÇÃO
-// ======================================
 async function initApp() {
     try {
-        const res = await fetch(`${API_BASE_URL}/tenant`);
-        const data = await res.json();
-        if (data.id) {
-            currentTenantId = data.id;
-            console.log("Tenant Ativo:", currentTenantId);
-            connectWebSocket();
-            loadInboxLeads();
-        } else {
-            console.error("Nenhum Tenant encontrado no banco de dados.");
+        // Obter token fake se não houver (para dev local)
+        if (!localStorage.getItem('token')) {
+           const res = await fetch(`${API_BASE_URL}/auth/login`, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+               body: 'username=admin@borges.os&password=admin123'
+           });
+           const data = await res.json();
+           if (data.access_token) localStorage.setItem('token', data.access_token);
         }
-    } catch (e) {
-        console.error("Erro ao buscar tenant", e);
-    }
+        
+        connectWebSocket();
+        loadInboxLeads();
+    } catch (e) { console.error("Erro init", e); }
 }
 
 initApp();

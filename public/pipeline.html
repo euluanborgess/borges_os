@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Borges OS - Workspace</title>
+    <!-- Tailwind CSS (via CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome for standard icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#fdf4f4',
+                            100: '#fbe9e9',
+                            400: '#f472b6',
+                            500: '#e11d48', // Red/Rose tone from Base44 logo
+                            900: '#881337',
+                        },
+                        ui: {
+                            900: '#141416', // Very dark background
+                            800: '#1c1c1e', // Panels
+                            700: '#2c2c2e', // Borders
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0d0d0f;
+            /* Deepest black/gray */
+            color: #f8fafc;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            overflow: hidden;
+            /* Prevent body scroll, handle internally */
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Custom Scrollbar for columns */
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #2c2c2e;
+            border-radius: 10px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: #3c3c3e;
+        }
+
+        /* Kanban Column Header Line */
+        .column-header-line {
+            height: 2px;
+            width: 100%;
+            background: #2c2c2e;
+            position: relative;
+            margin-top: 8px;
+            margin-bottom: 16px;
+        }
+
+        /* Lead Card Styling */
+        .lead-card {
+            background-color: #171719;
+            border: 1px solid #232325;
+            transition: all 0.2s ease;
+        }
+
+        .lead-card:hover {
+            border-color: #3f3f46;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Slide-over Drawer Base44 Style */
+        .drawer-overlay {
+            background-color: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(4px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .drawer-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .drawer-panel {
+            transform: translateX(100%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            background-color: #121214;
+            border-left: 1px solid #2c2c2e;
+            box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .drawer-panel.open {
+            transform: translateX(0);
+        }
+
+        /* Borges IA Highlight Box */
+        .ai-box {
+            background: linear-gradient(145deg, rgba(88, 28, 135, 0.2), rgba(0, 0, 0, 0));
+            border: 1px solid rgba(139, 92, 246, 0.3);
+        }
+
+        .ai-text {
+            color: #d8b4fe;
+            /* Purple 300 */
+        }
+
+        .chat-bubble-ai {
+            background-color: #27272a;
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-bubble-lead {
+            background-color: #3f3f46;
+            border-bottom-right-radius: 4px;
+        }
+    </style>
+</head>
+
+<body class="w-screen h-screen flex text-sm">
+
+    <!-- SIDEBAR (Left Navigation) -->
+    <aside class="w-64 h-full bg-[#121214] border-r border-[#232325] flex flex-col flex-shrink-0 z-20">
+        <!-- Logo Area -->
+        <div class="h-16 flex items-center px-4 border-b border-[#232325] space-x-3 cursor-pointer"
+            onclick="window.location.href='/'">
+            <div
+                class="w-8 h-8 rounded bg-brand-500 flex items-center justify-center text-white font-bold shadow-lg shadow-brand-500/20">
+                <i class="fa-solid fa-shapes"></i>
+            </div>
+            <span class="font-bold text-gray-200 text-lg tracking-wide">Borges OS</span>
+        </div>
+
+        <!-- Navigation Links -->
+        <nav class="flex-1 py-4 px-3 space-y-1">
+            <a href="/"
+                class="flex items-center px-3 py-2.5 text-gray-400 hover:text-white hover:bg-[#1f1f22] rounded-lg transition-colors group">
+                <i class="fa-solid fa-border-all w-6 text-center group-hover:text-white"></i> Dashboard
+            </a>
+            <a href="/pipeline"
+                class="flex items-center px-3 py-2.5 bg-brand-500/10 text-brand-500 rounded-lg font-medium transition-colors">
+                <i class="fa-solid fa-users w-6 text-center"></i> Leads CRM
+            </a>
+            <a href="#"
+                class="flex items-center px-3 py-2.5 text-gray-400 hover:text-white hover:bg-[#1f1f22] rounded-lg transition-colors group">
+                <i class="fa-regular fa-comment-dots w-6 text-center group-hover:text-white"></i> Conversas
+                <!-- Badge -->
+                <span class="ml-auto bg-brand-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">New</span>
+            </a>
+            <a href="#"
+                class="flex items-center px-3 py-2.5 text-gray-400 hover:text-white hover:bg-[#1f1f22] rounded-lg transition-colors group">
+                <i class="fa-regular fa-calendar w-6 text-center group-hover:text-white"></i> Agendamentos
+            </a>
+            <a href="#"
+                class="flex items-center px-3 py-2.5 text-gray-400 hover:text-white hover:bg-[#1f1f22] rounded-lg transition-colors group mt-6">
+                <i class="fa-solid fa-robot w-6 text-center text-purple-400 group-hover:text-purple-300"></i> Borges IA
+            </a>
+        </nav>
+
+        <!-- User Profile Bottom -->
+        <div class="h-16 flex items-center px-4 border-t border-[#232325]">
+            <div class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-xs"
+                id="sidebar-avatar">
+                C
+            </div>
+            <span class="ml-3 font-medium text-gray-300 text-sm truncate" id="sidebar-name">Carregando...</span>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <div class="flex-1 flex flex-col h-full bg-[#0d0d0f] relative overflow-hidden">
+
+        <!-- Top Header -->
+        <header
+            class="h-16 flex items-center justify-between px-6 border-b border-[#232325] bg-[#0d0d0f]/80 backdrop-blur-sm z-10 w-full">
+            <div
+                class="flex-1 max-w-2xl flex items-center bg-[#171719] border border-[#2c2c2e] rounded-lg px-3 py-1.5 focus-within:border-gray-500 transition-colors">
+                <i class="fa-solid fa-magnifying-glass text-gray-500 mr-2"></i>
+                <input type="text" placeholder="Buscar leads, contatos, telefones..."
+                    class="bg-transparent border-none text-white text-sm w-full focus:outline-none placeholder-gray-500">
+            </div>
+            <div class="flex items-center space-x-4 ml-4">
+                <button
+                    class="w-8 h-8 rounded-full bg-[#171719] border border-[#2c2c2e] text-gray-400 hover:text-white flex items-center justify-center transition-colors">
+                    <i class="fa-regular fa-bell"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Page Content: Kanban CRM -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Toolbar -->
+            <div class="px-6 py-5 flex-shrink-0">
+                <h1 class="text-2xl font-bold text-white mb-1">CRM de Leads</h1>
+                <p class="text-gray-400 text-xs mb-4">Gerencie seus leads através do funil de vendas automatizado pela
+                    Borges IA.</p>
+
+                <div class="flex items-center space-x-6 text-xs text-gray-300">
+                    <div class="flex items-center"><i class="fa-solid fa-chart-bar text-blue-400 mr-2"></i> <span
+                            id="hdr-total-leads" class="font-bold text-white mr-1">0</span> leads</div>
+                    <div class="flex items-center"><i class="fa-solid fa-bolt text-yellow-400 mr-2"></i> IA Operando
+                        Automaticamente</div>
+                </div>
+            </div>
+
+            <!-- Kanban Board -->
+            <div class="flex-1 overflow-x-auto no-scrollbar px-6 pb-6">
+                <div class="flex space-x-6 h-full min-w-max items-start">
+
+                    <!-- Columns will be injected here -->
+                    <div id="kanban-stage-novo" class="w-[300px] flex flex-col max-h-full">
+                        <div class="flex justify-between items-center text-sm font-semibold text-gray-300">
+                            <div class="flex items-center">
+                                <span class="w-2 h-2 rounded-full bg-blue-500 mr-2"></span> Novo <span
+                                    class="ml-2 px-1.5 bg-[#232325] text-gray-400 rounded-md text-[10px] count-badge">0</span>
+                            </div>
+                            <button class="text-gray-500 hover:text-gray-300"><i class="fa-solid fa-plus"></i></button>
+                        </div>
+                        <div class="column-header-line">
+                            <div class="absolute left-0 top-0 h-full w-1/4 bg-blue-500"></div>
+                        </div>
+                        <div class="flex-1 overflow-y-auto custom-scroll space-y-3 pb-4 content-area"></div>
+                    </div>
+
+                    <div id="kanban-stage-contato" class="w-[300px] flex flex-col max-h-full">
+                        <div class="flex justify-between items-center text-sm font-semibold text-gray-300">
+                            <div class="flex items-center">
+                                <span class="w-2 h-2 rounded-full bg-yellow-500 mr-2"></span> Contato <span
+                                    class="ml-2 px-1.5 bg-[#232325] text-gray-400 rounded-md text-[10px] count-badge">0</span>
+                            </div>
+                        </div>
+                        <div class="column-header-line">
+                            <div class="absolute left-0 top-0 h-full w-1/4 bg-yellow-500"></div>
+                        </div>
+                        <div class="flex-1 overflow-y-auto custom-scroll space-y-3 pb-4 content-area"></div>
+                    </div>
+
+                    <div id="kanban-stage-qualificacao" class="w-[300px] flex flex-col max-h-full">
+                        <div class="flex justify-between items-center text-sm font-semibold text-gray-300">
+                            <div class="flex items-center">
+                                <span class="w-2 h-2 rounded-full bg-cyan-400 mr-2"></span> Qualificação <span
+                                    class="ml-2 px-1.5 bg-[#232325] text-gray-400 rounded-md text-[10px] count-badge">0</span>
+                            </div>
+                        </div>
+                        <div class="column-header-line">
+                            <div class="absolute left-0 top-0 h-full w-1/4 bg-cyan-400"></div>
+                        </div>
+                        <div class="flex-1 overflow-y-auto custom-scroll space-y-3 pb-4 content-area"></div>
+                    </div>
+
+                    <div id="kanban-stage-agendamento" class="w-[300px] flex flex-col max-h-full">
+                        <div class="flex justify-between items-center text-sm font-semibold text-gray-300">
+                            <div class="flex items-center">
+                                <span class="w-2 h-2 rounded-full bg-emerald-500 mr-2"></span> Agendamento <span
+                                    class="ml-2 px-1.5 bg-[#232325] text-gray-400 rounded-md text-[10px] count-badge">0</span>
+                            </div>
+                        </div>
+                        <div class="column-header-line">
+                            <div class="absolute left-0 top-0 h-full w-1/4 bg-emerald-500"></div>
+                        </div>
+                        <div class="flex-1 overflow-y-auto custom-scroll space-y-3 pb-4 content-area"></div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- OVERLAY AND SLIDE-OVER DRAWER (Lead Details + Inbox) -->
+        <div id="drawer-overlay" class="fixed inset-0 drawer-overlay z-30 flex justify-end"
+            onclick="closeDrawer(event)">
+            <!-- Evita propagação do click para não fechar quando clicar dentro do painel -->
+            <div id="drawer-panel" class="w-[900px] max-w-[95vw] h-full drawer-panel flex shadow-2xl"
+                onclick="event.stopPropagation()">
+
+                <!-- Drawer Left Side: Lead Info -->
+                <div class="w-1/3 min-w-[300px] bg-[#121214] border-r border-[#2c2c2e] flex flex-col h-full shrink-0">
+                    <div class="p-6 pb-4 border-b border-[#2c2c2e] relative">
+                        <button onclick="closeDrawer()" class="absolute top-4 right-4 text-gray-500 hover:text-white"><i
+                                class="fa-solid fa-xmark text-lg"></i></button>
+
+                        <div class="w-16 h-16 rounded-full bg-gradient-to-tr from-brand-600 to-rose-400 flex items-center justify-center text-white text-2xl font-bold mb-4 shadow-lg"
+                            id="draw-avatar">
+                            ?
+                        </div>
+                        <h2 class="text-xl font-bold text-white mb-1" id="draw-name">Carregando...</h2>
+                        <p class="text-gray-400 text-sm font-mono flex items-center"><i
+                                class="fa-brands fa-whatsapp mr-2"></i> <span id="draw-phone">--</span></p>
+
+                        <div class="flex gap-2 mt-4" id="draw-tags-container">
+                            <span
+                                class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-red-500/20 text-red-400 border border-red-500/30"
+                                id="draw-temp">FRIO</span>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto custom-scroll p-6 space-y-6">
+
+                        <!-- AI Insights Box -->
+                        <div class="ai-box p-4 rounded-xl relative overflow-hidden">
+                            <div class="absolute top-0 right-0 p-2 opacity-20"><i
+                                    class="fa-solid fa-robot text-4xl text-purple-400"></i></div>
+                            <h4
+                                class="text-xs font-bold text-purple-300 uppercase tracking-wider mb-2 flex items-center">
+                                <i class="fa-solid fa-sparkles mr-1.5"></i> Borges IA Insight
+                            </h4>
+                            <p class="text-xs text-purple-200/80 italic leading-relaxed" id="draw-ai-summary">
+                                "O cliente está interessado na plataforma de automação, porém possui dúvidas sobre a
+                                integração. Considerado lead de potencial médio."
+                            </p>
+                            <div class="mt-3 w-full bg-purple-900/30 rounded-full h-1.5">
+                                <div class="bg-purple-500 h-1.5 rounded-full" style="width: 45%" id="draw-score-bar">
+                                </div>
+                            </div>
+                            <div class="flex justify-between text-[9px] text-purple-300/60 mt-1 uppercase font-mono">
+                                <span>Score IA</span>
+                                <span id="draw-score-txt">45 / 100</span>
+                            </div>
+                        </div>
+
+                        <!-- Manual Fields -->
+                        <div class="space-y-4">
+                            <div>
+                                <label
+                                    class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Estágio
+                                    do Funil</label>
+                                <select
+                                    class="w-full bg-[#1c1c1e] border border-[#2c2c2e] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+                                    disabled>
+                                    <option>Controlado pela Inteligência Artificial</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label
+                                    class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">E-mail
+                                    Comercial</label>
+                                <input type="email" placeholder="Nenhum capturado"
+                                    class="w-full bg-[#1c1c1e] border border-[#2c2c2e] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-500 text-gray-500"
+                                    readonly>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Drawer Right Side: Live Chat / Handoff -->
+                <div class="flex-1 bg-[#171719] flex flex-col h-full">
+
+                    <!-- Chat Header -->
+                    <div class="h-16 border-b border-[#2c2c2e] flex items-center justify-between px-6 bg-[#121214]">
+                        <div class="flex items-center">
+                            <i class="fa-brands fa-whatsapp text-emerald-500 text-lg mr-2"></i>
+                            <span class="font-semibold text-gray-200">Terminal de Conversa</span>
+                        </div>
+
+                        <!-- Botão de Handoff que bloqueia a IA -->
+                        <button id="btn-handoff"
+                            class="flex items-center bg-orange-500/10 text-orange-500 border border-orange-500/30 px-3 py-1.5 rounded text-xs font-bold hover:bg-orange-500/20 transition-colors shadow-lg shadow-orange-500/10">
+                            <i class="fa-solid fa-hand mr-1.5"></i> Assumir Controle (Pausar IA)
+                        </button>
+                        <button id="btn-resume-ai"
+                            class="hidden flex items-center bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 px-3 py-1.5 rounded text-xs font-bold hover:bg-emerald-500/20 transition-colors">
+                            <i class="fa-solid fa-robot mr-1.5"></i> Reativar Automação IA
+                        </button>
+                    </div>
+
+                    <!-- Messages Window -->
+                    <div id="chat-history"
+                        class="flex-1 overflow-y-auto custom-scroll p-6 space-y-4 bg-gradient-to-b from-[#171719] to-[#121214]">
+                        <div class="text-center text-xs text-gray-600 mt-20">
+                            <i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2 text-brand-500"></i><br>
+                            Carregando histórico do servidor...
+                        </div>
+                    </div>
+
+                    <!-- Chat Input -->
+                    <div class="p-4 border-t border-[#2c2c2e] bg-[#121214]">
+                        <form id="send-msg-form" class="flex relative">
+                            <input type="text" id="msg-input" disabled
+                                placeholder="Assuma o controle (Handoff) para digitar mensagens nativas..."
+                                class="w-full bg-[#1c1c1e] border border-[#2c2c2e] rounded-xl pl-4 pr-12 py-3 text-sm text-white focus:outline-none focus:border-brand-500 focus:shadow-[0_0_15px_rgba(225,29,72,0.15)] transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                            <button type="submit" id="btn-send" disabled
+                                class="absolute right-2 top-2 bottom-2 w-9 h-9 rounded-lg bg-brand-600 text-white flex items-center justify-center hover:bg-brand-500 disabled:opacity-40 disabled:bg-gray-700 transition">
+                                <i class="fa-solid fa-paper-plane text-xs"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+    <!-- MAIN APP LOGIC -->
+    <script>
+        let currentTenantId = null;
+        let activeLeadId = null;
+        let ws = null;
+
+        // UI State
+        const uiState = {
+            leads: [],
+            totalLeads: 0
+        };
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initializeBase();
+        });
+
+        async function initializeBase() {
+            try {
+                // 1. Fetch Tenant/User Data
+                const res = await fetch('/api/v1/tenant');
+                const tenant = await res.json();
+
+                if (tenant.id) {
+                    currentTenantId = tenant.id;
+                    const userName = tenant.name || 'Agência Borges';
+                    document.getElementById('sidebar-name').innerText = userName;
+                    document.getElementById('sidebar-avatar').innerText = userName.charAt(0).toUpperCase();
+
+                    // 2. Fetch Leads Data for Kanban
+                    await fetchKanbanData();
+
+                    // 3. Connect to Websockets for live updates
+                    connectWebSocket();
+                } else {
+                    document.getElementById('sidebar-name').innerText = "Erro DB";
+                }
+            } catch (err) { console.error("Initialization Failed:", err); }
+        }
+
+        /* -------------------------------------------------------------
+           KANBAN LOGIC
+        ------------------------------------------------------------- */
+        function getTempBadge(temp) {
+            temp = (temp || "frio").toLowerCase();
+            let colorCls = "bg-blue-500/20 text-blue-400 border-blue-500/30";
+            if (temp.includes("quente") || temp.includes("alta")) colorCls = "bg-red-500/20 text-red-500 border-red-500/30";
+            else if (temp.includes("morno") || temp.includes("média") || temp.includes("media")) colorCls = "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+            return `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${colorCls}">${temp}</span>`;
+        }
+
+        function createKanbanCard(lead) {
+            const tempBadge = getTempBadge(lead.temperature);
+            const score = lead.score || 0;
+            const nome = (lead.name && lead.name !== "Desconhecido") ? lead.name : lead.phone;
+            const letter = nome.charAt(0).toUpperCase();
+
+            // Simula um texto de resumo da IA cortando a última mensagem (como no screenshot)
+            const aiSnippet = lead.last_message && lead.last_message !== "Conversa iniciada"
+                ? lead.last_message.substring(0, 70) + '...'
+                : 'Aguardando processamento do LLM e interações...';
+
+            return `
+                <div class="lead-card p-4 rounded-xl cursor-pointer" onclick='openDrawer(${JSON.stringify(lead).replace(/'/g, "&apos;")})'>
+                    <!-- Header: Temp + Dots -->
+                    <div class="flex justify-between items-center mb-3">
+                        ${tempBadge}
+                        <i class="fa-solid fa-ellipsis text-gray-600 hover:text-gray-300"></i>
+                    </div>
+                    
+                    <!-- Avatar and Name -->
+                    <div class="flex items-center space-x-3 mb-3">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-gray-700 to-gray-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
+                            ${letter}
+                        </div>
+                        <div class="overflow-hidden">
+                            <h4 class="text-white font-semibold text-sm truncate">${nome}</h4>
+                            <p class="text-gray-500 text-[10px] font-mono truncate"><i class="fa-brands fa-whatsapp"></i> ${lead.phone}</p>
+                        </div>
+                    </div>
+
+                    <!-- AI Snippet (Italic, smaller) -->
+                    <p class="text-[10px] text-gray-400 font-light italic leading-relaxed mb-3 line-clamp-2">
+                        <span class="font-bold text-purple-400 not-italic uppercase text-[9px]">Resumo:</span> ${aiSnippet}
+                    </p>
+
+                    <!-- Bottom row: Value and Contact buttons -->
+                    <div class="flex justify-between items-end mt-2">
+                        <span class="text-emerald-500 font-bold text-xs tracking-wider">R$ --</span>
+                        <div class="flex space-x-1">
+                            <div class="w-6 h-6 rounded bg-[#232325] flex items-center justify-center text-gray-400 hover:text-white hover:bg-brand-500/20"><i class="fa-solid fa-comment-dots text-[10px]"></i></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function fetchKanbanData() {
+            try {
+                const res = await fetch(`/api/v1/ws/inbox/leads/${currentTenantId}`);
+                const payload = await res.json();
+
+                if (payload.status === "success" && payload.data) {
+                    uiState.leads = payload.data;
+                    uiState.totalLeads = payload.data.length;
+                    document.getElementById('hdr-total-leads').innerText = uiState.totalLeads;
+
+                    const colMap = {
+                        "novo": { el: document.querySelector('#kanban-stage-novo .content-area'), count: 0, badge: document.querySelector('#kanban-stage-novo .count-badge') },
+                        "contato": { el: document.querySelector('#kanban-stage-contato .content-area'), count: 0, badge: document.querySelector('#kanban-stage-contato .count-badge') },
+                        "qualificacao": { el: document.querySelector('#kanban-stage-qualificacao .content-area'), count: 0, badge: document.querySelector('#kanban-stage-qualificacao .count-badge') },
+                        "agendamento": { el: document.querySelector('#kanban-stage-agendamento .content-area'), count: 0, badge: document.querySelector('#kanban-stage-agendamento .count-badge') }
+                    };
+
+                    // Clear
+                    Object.values(colMap).forEach(c => c.el.innerHTML = '');
+
+                    // Distribute
+                    payload.data.forEach(lead => {
+                        let stage = (lead.pipeline_stage || "novo").toLowerCase();
+                        let target = "novo";
+                        if (stage.includes("contato") || stage.includes("atendimento")) target = "contato";
+                        else if (stage.includes("qualifica")) target = "qualificacao";
+                        else if (stage.includes("agenda") || stage.includes("reuni") || stage.includes("venda")) target = "agendamento";
+
+                        colMap[target].el.innerHTML += createKanbanCard(lead);
+                        colMap[target].count++;
+                    });
+
+                    // Update badges
+                    Object.values(colMap).forEach(c => c.badge.innerText = c.count);
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        /* -------------------------------------------------------------
+           SLIDE-OVER DRAWER (HUD & INBOX)
+        ------------------------------------------------------------- */
+        async function openDrawer(lead) {
+            activeLeadId = lead.id;
+            const nome = (lead.name && lead.name !== "Desconhecido") ? lead.name : lead.phone;
+
+            // Populate Drawer Visuals
+            document.getElementById('draw-name').innerText = nome;
+            document.getElementById('draw-phone').innerText = lead.phone;
+            document.getElementById('draw-avatar').innerText = nome.charAt(0).toUpperCase();
+
+            // Temperature & Score Bar
+            document.getElementById('draw-tags-container').innerHTML = getTempBadge(lead.temperature);
+            const score = lead.score || 0;
+            document.getElementById('draw-score-bar').style.width = score + "%";
+            document.getElementById('draw-score-txt').innerText = score + " / 100";
+
+            document.getElementById('draw-ai-summary').innerText = `O lead trocou mensagens recentes. A IA classificou sua temperatura probabilística como "${lead.temperature || 'frio'}". Em estágio de "${lead.pipeline_stage || 'captura'}".`;
+
+            // Open Animation
+            document.getElementById('drawer-overlay').classList.add('open');
+            setTimeout(() => { document.getElementById('drawer-panel').classList.add('open'); }, 10);
+
+            // Fetch Live Chat
+            await loadInboxChat(lead.id);
+        }
+
+        function closeDrawer(event) {
+            if (event && event.target.id !== 'drawer-overlay' && event.target.tagName !== 'BUTTON' && !event.target.closest('button')) return;
+            document.getElementById('drawer-panel').classList.remove('open');
+            setTimeout(() => { document.getElementById('drawer-overlay').classList.remove('open'); activeLeadId = null; }, 300);
+        }
+
+        /* -------------------------------------------------------------
+           INBOX & CHAT LOGIC
+        ------------------------------------------------------------- */
+        async function loadInboxChat(leadId) {
+            const chatDiv = document.getElementById('chat-history');
+            chatDiv.innerHTML = '<div class="text-center text-xs text-brand-500 mt-20"><i class="fa-solid fa-spinner fa-spin text-2xl mb-2"></i><br>Consultando banco de dados...</div>';
+
+            // Reset Handoff UI state for new lead
+            document.getElementById('btn-handoff').classList.remove('hidden');
+            document.getElementById('btn-resume-ai').classList.add('hidden');
+            const inp = document.getElementById('msg-input');
+            inp.disabled = true;
+            document.getElementById('btn-send').disabled = true;
+            inp.placeholder = "Assuma o controle (Handoff) para digitar mensagens nativas...";
+
+            try {
+                const res = await fetch(`/api/v1/ws/inbox/messages/${currentTenantId}/${leadId}`);
+                const payload = await res.json();
+
+                chatDiv.innerHTML = '';
+                if (payload.data && payload.data.length > 0) {
+                    payload.data.forEach(msg => appendMessage(msg.sender_type, msg.content));
+                    scrollToBottom();
+                } else {
+                    chatDiv.innerHTML = '<div class="text-center text-gray-600 mt-20 text-xs"><i class="fa-brands fa-whatsapp text-2xl mb-2 opacity-50"></i><br>Nenhuma mensagem registrada.</div>';
+                }
+            } catch (err) { console.error("Chat load error:", err); }
+        }
+
+        function appendMessage(sender, text) {
+            const chatDiv = document.getElementById('chat-history');
+            const wrap = document.createElement('div');
+
+            if (sender === 'ai' || sender === 'human' || sender === 'agent') {
+                wrap.className = "flex justify-end";
+                const isHuman = sender === 'human';
+                wrap.innerHTML = `
+                    <div class="max-w-[80%] text-[13px] ${isHuman ? 'bg-orange-600' : 'bg-[#2c2c2e]'} px-4 py-2.5 text-gray-200 rounded-2xl border ${isHuman ? 'border-orange-500 rounded-br-sm' : 'border-[#3c3c3e] rounded-br-sm'} shadow-md relative group">
+                        ${text}
+                        <div class="text-[9px] ${isHuman ? 'text-orange-300' : 'text-gray-500'} text-right mt-1 flex justify-end items-center uppercase font-bold tracking-wider">
+                            ${isHuman ? '<i class="fa-solid fa-user mr-1"></i> HUMANO' : '<i class="fa-solid fa-robot mr-1"></i> BORGES IA'}
+                        </div>
+                    </div>
+                `;
+            } else {
+                wrap.className = "flex justify-start";
+                wrap.innerHTML = `
+                    <div class="max-w-[80%] text-[13px] bg-[#1c1c1e] px-4 py-2.5 text-gray-200 rounded-2xl border border-[#2c2c2e] rounded-bl-sm shadow-md">
+                        ${text}
+                        <div class="text-[9px] text-brand-400 text-left mt-1 flex items-center uppercase font-bold tracking-wider">
+                            <i class="fa-brands fa-whatsapp mr-1 text-emerald-500"></i> CLIENTE
+                        </div>
+                    </div>
+                `;
+            }
+            chatDiv.appendChild(wrap);
+        }
+
+        function scrollToBottom() {
+            const d = document.getElementById('chat-history');
+            d.scrollTop = d.scrollHeight;
+        }
+
+        function connectWebSocket() {
+            ws = new WebSocket(`ws://${window.location.host}/api/v1/ws/inbox/${currentTenantId}`);
+            ws.onmessage = function (event) {
+                const data = JSON.parse(event.data);
+                // Background updates
+                fetchKanbanData(); // Live reload boards if status changes
+
+                // If the chat drawer is open for this exact lead
+                if (activeLeadId && data.lead_id === activeLeadId) {
+                    if (data.event === "message_received") appendMessage('lead', data.content);
+                    if (data.event === "message_sent_ai") appendMessage('ai', data.content);
+                    scrollToBottom();
+                }
+            };
+            ws.onclose = () => setTimeout(connectWebSocket, 3000);
+        }
+
+        /* HANDOFF UI ACTIONS */
+        document.getElementById('btn-handoff').onclick = () => {
+            const inp = document.getElementById('msg-input');
+            const btn = document.getElementById('btn-send');
+            inp.disabled = false;
+            btn.disabled = false;
+            inp.focus();
+            inp.placeholder = "IA Bloqueada. Digite e envie direto para o WPP do Lead...";
+            document.getElementById('btn-handoff').classList.add('hidden');
+            document.getElementById('btn-resume-ai').classList.remove('hidden');
+        };
+
+        document.getElementById('btn-resume-ai').onclick = () => {
+            const inp = document.getElementById('msg-input');
+            const btn = document.getElementById('btn-send');
+            inp.disabled = true;
+            btn.disabled = true;
+            inp.placeholder = "Assuma o controle (Handoff) para digitar mensagens nativas...";
+            document.getElementById('btn-handoff').classList.remove('hidden');
+            document.getElementById('btn-resume-ai').classList.add('hidden');
+        };
+
+        // Form Submit
+        document.getElementById('send-msg-form').onsubmit = (e) => {
+            e.preventDefault();
+            const inp = document.getElementById('msg-input');
+            const val = inp.value.trim();
+            if (!val || !activeLeadId) return;
+
+            appendMessage('human', val);
+            scrollToBottom();
+
+            // Dispara websocket command sent to server
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: "send_message", lead_id: activeLeadId, content: val }));
+            }
+            inp.value = '';
+        };
+
+    </script>
+</body>
+
+</html>

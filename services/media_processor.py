@@ -37,7 +37,7 @@ async def download_media_from_evolution(instance_name: str, message_id: str, evo
     
     async with httpx.AsyncClient() as http_client:
         response = await http_client.post(url, json=payload, headers=headers, timeout=30.0)
-        if response.status_code == 200:
+        if response.status_code in [200, 201]:
             data = response.json()
             return data.get("base64", "")
         else:

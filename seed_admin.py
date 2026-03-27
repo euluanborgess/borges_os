@@ -1,8 +1,12 @@
 import sys
 import os
+from dotenv import load_dotenv
 
 # Ensure the root directory is in PYTHONPATH so we can import 'core', 'models' etc.
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Load environment variables from .env file
+load_dotenv()
 
 from core.database import SessionLocal
 from models.tenant import Tenant

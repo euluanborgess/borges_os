@@ -14,11 +14,16 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     
-    # enum: super_admin, tenant_admin, user
+    # enum: super_admin, company_admin, user
     role = Column(String, default="user", nullable=False) 
     is_active = Column(Boolean, default=True)
+
+    # Onboarding
+    first_login = Column(Boolean, default=False)  # True = show welcome modal
+    invite_token = Column(String, nullable=True, unique=True)  # Token for registration link
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     tenant = relationship("Tenant", backref="users")
+

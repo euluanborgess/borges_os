@@ -7,7 +7,6 @@
     <title>Borges OS - Command Center</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 
     <script>
         let currentTenantId = null;
@@ -18,10 +17,22 @@
         let allInboxLeads = [];
 
         document.addEventListener('DOMContentLoaded', async () => {
+            // [KILL SWITCH] - Force Logout via URL
+            if (window.location.search.includes('logout=true')) {
+                localStorage.clear();
+                window.location.href = '/login.html';
+                return;
+            }
             await initializeApp();
             handleInitialRoute(); // SPA Deep Linking
             initAIBrain(); // Base 44 Feature
             initInboxEvents(); // Inbox Real time bindings
+            
+            // [SUPER ADMIN FIX] - Ensure tenants are fetched if starting on super-admin
+            if (window.location.pathname.includes('super')) {
+                fetchTenants();
+            }
+
             // Start Dashboard polling mock (animates numbers)
             setInterval(fetchDashboardMock, 5000);
         });
@@ -35,6 +46,22 @@
             }
         });
 
+        function handleLogout() {
+            console.log("Iniciando logout bruto...");
+            try {
+                localStorage.clear();
+                sessionStorage.clear();
+                // Limpeza extra para garantir
+                localStorage.removeItem('borges_token');
+                localStorage.removeItem('borges_user');
+                console.log("Storage limpo. Redirecionando...");
+                window.location.href = '/login.html';
+            } catch (e) {
+                console.error("Erro no logout:", e);
+                window.location.href = '/login.html';
+            }
+        }
+
         function handleInitialRoute() {
             const path = window.location.pathname.replace(/\/$/, ''); // Remove trailing slash
             let viewId = 'dashboard';
@@ -46,6 +73,7 @@
             else if (path.includes('contracts') || path.includes('contratos')) viewId = 'contracts';
             else if (path.includes('ai') || path.includes('borges')) viewId = 'ai';
             else if (path.includes('reports') || path.includes('relatorios')) viewId = 'reports';
+            else if (path.includes('audit') || path.includes('logs')) viewId = 'audit';
             else if (path.includes('super')) viewId = 'super-admin';
             else if (path.includes('settings') || path.includes('config')) viewId = 'settings';
 
@@ -56,8 +84,11 @@
 
         function switchView(viewId, btnEl = null, updateUrl = true) {
             // Hide all views
-            document.querySelectorAll('.app-view').forEach(el => el.classList.remove('active'));
-            // Remove active classes from nav items based on Base 44
+            document.querySelectorAll('.app-view').forEach(el => {
+                el.classList.remove('active');
+            });
+            
+            // Remove active classes from nav items
             document.querySelectorAll('.nav-item').forEach(el => {
                 el.classList.remove('nav-active', 'text-white');
                 el.classList.add('text-[#8b8b9e]', 'hover:text-white', 'hover:bg-[#1c1c28]');
@@ -81,7 +112,6 @@
             }
 
             if (updateUrl) {
-                // Determine clean URL name based on viewId
                 let pathName = '/' + viewId;
                 if (viewId === 'dashboard') pathName = '/';
                 if (viewId === 'pipeline') pathName = '/leads';
@@ -93,7 +123,9 @@
             if (viewId === 'pipeline' || viewId === 'inbox') fetchKanbanData();
             if (viewId === 'inbox') fetchInboxLeads();
             if (viewId === 'calendar') fetchAppointments();
+            if (viewId === 'contracts') fetchContracts();
             if (viewId === 'reports') initReports();
+            if (viewId === 'audit') fetchAuditLogs();
             if (viewId === 'settings') initSettings();
             if (viewId === 'super-admin') fetchTenants();
         }
@@ -141,6 +173,10 @@
                 const superAdminBtn = document.getElementById('nav-btn-superadmin');
                 if (superAdminBtn) superAdminBtn.style.display = 'flex';
             }
+
+            // [FIX] - Update Greeting Name
+            const elGreetingName = document.getElementById('dash-greeting-name');
+            if (elGreetingName) elGreetingName.innerText = user.full_name.split(' ')[0];
 
             // Exibir Nome do Usuário na Sidebar
             const elSidebarName = document.getElementById('sidebar-name');
@@ -216,8 +252,76 @@
                     if (elStatPendingTasks) animateValue("stat-pending-tasks", parseInt(elStatPendingTasks.innerText) || 0, (data.waiting_human || 0) * 2, 1000);
                     if (elStatActiveConvs) animateValue("stat-active-convs", parseInt(elStatActiveConvs.innerText) || 0, tCount > 0 ? tCount - (data.waiting_human || 0) : 0, 1000);
                     if (elStatNoReply) animateValue("stat-no-reply", parseInt(elStatNoReply.innerText) || 0, Math.floor(tCount * 0.2), 1000);
+
+                    // Update Temperature Chart (Interactive)
+                    renderTemperatureChart(data.temperature_breakdown);
+
+                    // Update Recent Activities
+                    renderRecentActivities(data.recent_activities);
                 }
             } catch (e) { }
+        }
+
+        function renderTemperatureChart(breakdown) {
+            const canvas = document.getElementById('dash-temp-chart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            const temps = [
+                { name: 'Quente', count: breakdown['quente'] || 0, color: '#ef4444' },
+                { name: 'Morno', count: breakdown['morno'] || 0, color: '#f59e0b' },
+                { name: 'Frio', count: breakdown['frio'] || 0, color: '#3b82f6' }
+            ];
+            
+            const total = temps.reduce((s, t) => s + t.count, 0);
+            if (total === 0) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            let start = -0.5 * Math.PI;
+            const cx = canvas.width / 2, cy = canvas.height / 2, r = Math.min(cx, cy) - 5;
+            
+            temps.forEach(t => {
+                if (t.count === 0) return;
+                let slice = (t.count / total) * 2 * Math.PI;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.arc(cx, cy, r, start, start + slice);
+                ctx.fillStyle = t.color;
+                ctx.fill();
+                start += slice;
+            });
+            
+            // Donut hole
+            ctx.beginPath();
+            ctx.arc(cx, cy, r * 0.6, 0, 2 * Math.PI);
+            ctx.fillStyle = '#111118';
+            ctx.fill();
+
+            const totalEl = document.getElementById('dash-temp-total');
+            if (totalEl) totalEl.innerText = total;
+        }
+
+        function renderRecentActivities(activities) {
+            const container = document.getElementById('dash-recent-activities');
+            if (!container || !activities) return;
+            
+            if (activities.length === 0) {
+                container.innerHTML = '<p class="text-xs text-[#5a5a6e] text-center py-4">Nenhuma atividade recente.</p>';
+                return;
+            }
+
+            container.innerHTML = activities.map(a => `
+                <div class="flex items-center gap-3 p-3 rounded-lg bg-[#0a0a0f] border border-[#1e1e2e]">
+                    <div class="w-8 h-8 rounded-full bg-cyan-500/10 flex items-center justify-center text-cyan-400">
+                        <i class="fa-solid ${a.sender_type === 'client' ? 'fa-user' : 'fa-robot'} text-xs"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs font-semibold text-white truncate">${a.lead_name}</p>
+                        <p class="text-[10px] text-[#5a5a6e] truncate">${a.content}</p>
+                    </div>
+                    <span class="text-[9px] text-[#3a3a4e]">${timeAgoBr(a.timestamp)}</span>
+                </div>
+            `).join('');
         }
 
         function animateValue(id, start, end, duration) {
@@ -235,13 +339,6 @@
         }
 
         /* --- KANBAN LOGIC --- */
-        function getBadgeCol(temp) {
-            let t = (temp || 'frio').toLowerCase();
-            if (t.includes('quente') || t.includes('alta')) return 'bg-red-500/20 text-red-400 border-red-500/30';
-            if (t.includes('morno') || t.includes('media')) return 'bg-yellow-500/20 text-yellow-500 border-yellow-500/30';
-            return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-        }
-
         const stageConfig = {
             novo: { label: "Novo", color: "#8b5cf6", emoji: "🆕" },
             contato: { label: "Contato", color: "#3b82f6", emoji: "📞" },
@@ -254,6 +351,15 @@
             desqualificado: { label: "Desqualificado", color: "#6b7280", emoji: "⛔" },
         };
 
+        // Adicionar aliases para compatibilidade com a IA
+        const stageAliases = {
+            "qualificado": "qualificacao",
+            "venda": "fechado",
+            "fechada": "fechado",
+            "reunião": "reuniao",
+            "prospecção": "contato"
+        };
+
         function getBadgeCol(temp) {
             let t = (temp || 'frio').toLowerCase();
             if (t.includes('quente') || t.includes('alta')) return 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30';
@@ -261,7 +367,7 @@
             return 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30';
         }
 
-        function buildCard(lead) {
+                function buildCard(lead) {
             const letter = (lead.name && lead.name !== "Desconhecido") ? lead.name.charAt(0) : "W";
             const nome = (lead.name && lead.name !== "Desconhecido") ? lead.name : lead.phone;
             const badgeCls = getBadgeCol(lead.temperature);
@@ -305,6 +411,10 @@
                             </div>
                             <div>
                                 <p class="text-sm font-semibold text-white transition-colors ${nameHover}">${nome}</p>
+                                <div class="flex items-center gap-1 mt-0.5">
+                                    <span class="text-[9px] text-[#5a5a6e] uppercase font-bold">LTV:</span>
+                                    <span class="text-[9px] text-emerald-400 font-bold">R$ ${(lead.ltv || 0).toLocaleString('pt-BR')}</span>
+                                </div>
                             </div>
                         </div>
                         ${(lead.score > 70) ? '<i class="fa-solid fa-star text-yellow-400 text-sm"></i>' : ''}
@@ -312,7 +422,7 @@
 
                     <div class="flex items-center gap-2 mb-3">
                         <span class="px-2 py-0.5 rounded text-[10px] uppercase font-medium border ${badgeCls}">${lead.temperature === "quente" ? "Alta" : lead.temperature === "morno" ? "Média" : "Baixa"}</span>
-                        <span class="text-[10px] text-[#5a5a6e]">🔗</span>
+                        ${lead.tags ? lead.tags.slice(0,2).map(tag => `<span class="px-2 py-0.5 rounded text-[9px] bg-white/5 border border-white/10 text-[#8b8b9e]">${tag}</span>`).join('') : ''}
                     </div>
 
                     ${lead.phone ? `
@@ -332,7 +442,16 @@
                     </p>
 
                     <div class="flex items-center justify-between pt-2 border-t border-[#1e1e2e]">
-                        <div class="flex items-center gap-2">
+                        <div class="flex-1">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-[9px] text-[#5a5a6e] uppercase font-bold">Score</span>
+                                <span class="text-[9px] text-cyan-400 font-bold">${lead.score || 0}%</span>
+                            </div>
+                            <div class="w-full h-1 bg-[#1e1e2e] rounded-full overflow-hidden">
+                                <div class="h-full bg-gradient-to-r from-cyan-600 to-cyan-400 rounded-full transition-all duration-500" style="width: ${lead.score || 0}%"></div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 ml-3">
                             ${(lead.estimated_value && lead.estimated_value > 0) ? `<span class="text-xs text-green-400 font-medium">R$ ${lead.estimated_value.toLocaleString('pt-BR')}</span>` : ''}
                         </div>
                     </div>
@@ -432,7 +551,8 @@
 
                     payload.data.forEach(lead => {
                         let st = (lead.pipeline_stage || "novo").toLowerCase();
-                        let targetStage = stageConfig[st] ? st : "novo";
+                        let targetStage = (st in stageConfig) ? st : (stageAliases[st] || "novo");
+                        console.log(`Lead ${lead.id} stage ${st} -> target ${targetStage}`);
 
                         stageData[targetStage].leads.push(lead);
                         stageData[targetStage].est += (lead.estimated_value || 0);
@@ -598,69 +718,6 @@
                 }
             });
             renderInboxList();
-        }
-
-        function openInboxMaster(lead) {
-            window.activeLeadId = lead.id;
-
-            // Re-render sidebar to show active state
-            renderInboxList();
-
-            // Hide Empty state
-            const emptyEl = document.getElementById('chat-master-empty');
-            if (emptyEl) emptyEl.classList.add('hidden');
-
-            // Show Header, History, Footer
-            document.getElementById('chat-master-header').classList.remove('hidden');
-            document.getElementById('chat-history-master').classList.remove('hidden');
-            document.getElementById('chat-master-footer').classList.remove('hidden');
-            // Show Details COLUMN + inner content
-            const detailsCol = document.getElementById('inbox-details-column');
-            if (detailsCol) detailsCol.classList.remove('hidden');
-            document.getElementById('chat-master-details').classList.remove('hidden');
-
-            // Enable input
-            const msgInput = document.getElementById('msg-input-master');
-            const btnSend = document.getElementById('btn-send-master');
-            if (msgInput) { msgInput.disabled = false; msgInput.placeholder = 'Assuma o controle no topo (Botão Laranja) para digitar...'; }
-            if (btnSend) btnSend.disabled = false;
-
-            // Populate Central Topbar
-            const name = (lead.name && lead.name !== "Desconhecido") ? lead.name : lead.phone;
-            document.getElementById('chat-master-name').innerText = name;
-            document.getElementById('chat-master-phone').innerText = lead.phone;
-            // Avatar com foto ou letra
-            const avatarEl = document.getElementById('chat-master-avatar');
-            if (lead.profile_data && lead.profile_data.picture) {
-                avatarEl.innerHTML = `<img src="${lead.profile_data.picture}" class="w-full h-full object-cover rounded-full" />`;
-            } else {
-                avatarEl.innerText = name.charAt(0).toUpperCase();
-            }
-
-            // Populate CRM Details side pane
-            document.getElementById('detail-master-name').innerText = name;
-            document.getElementById('detail-master-phone').innerText = lead.phone;
-            const detailAvatar = document.getElementById('detail-master-avatar');
-            if (lead.profile_data && lead.profile_data.picture) {
-                detailAvatar.innerHTML = `<img src="${lead.profile_data.picture}" class="w-full h-full object-cover rounded-full" />`;
-            } else {
-                detailAvatar.innerText = name.charAt(0).toUpperCase();
-            }
-
-            // Atividade
-            const lmEl = document.getElementById('detail-master-lastmsg');
-            if (lmEl) lmEl.innerText = timeAgoBr(lead.last_message_at || lead.updated_at);
-            const agEl = document.getElementById('detail-master-agent');
-            if (agEl) agEl.innerText = lead.is_paused_for_human ? 'Humano' : 'Bot';
-
-            // Mark as read
-            fetchWithAuth(`/api/v1/ws/inbox/leads/${lead.id}/read`, { method: 'POST' }).catch(() => { });
-            // Update local state
-            const idx = allInboxLeads.findIndex(l => l.id === lead.id);
-            if (idx >= 0) allInboxLeads[idx].unread_count = 0;
-
-            loadMasterChat(lead.id);
-            loadLeadMedia(lead.id);
         }
 
         /* --- TASKS V2 --- */
@@ -836,7 +893,7 @@
 
             const dTags = document.getElementById('draw-tags-container');
             if (dTags) {
-                dTags.innerHTML = `< span class= "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getBadgeCol(lead.temperature)}" > ${lead.temperature || 'FRIO'}</span > `;
+                dTags.innerHTML = `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getBadgeCol(lead.temperature)}">${lead.temperature || 'FRIO'}</span>`;
             }
 
             const score = lead.score || 0;
@@ -862,7 +919,7 @@
             const dPanel = document.getElementById('drawer-panel');
             if (dPanel) dPanel.classList.remove('open');
             const dOverlay = document.getElementById('drawer-overlay');
-            if (dOverlay) setTimeout(() => { dOverlay.classList.remove('open'); activeLeadId = null; }, 300);
+            if (dOverlay) setTimeout(() => { dOverlay.classList.remove('open'); }, 300);
 
             toggleHandoff(false);
         }
@@ -921,22 +978,22 @@
                 w.className = "flex justify-end";
                 const isH = sender === 'human';
                 w.innerHTML = `
-                < div class= "max-w-[80%] text-[13px] ${isH ? 'bg-orange-900/40 border-orange-500/50' : 'bg-ui-800 border-ui-700/70'} px-4 py-3 text-gray-200 rounded-2xl border ${isH ? 'rounded-br-sm' : 'rounded-br-sm'} shadow-lg relative glow-effect" >
+                <div class="max-w-[80%] text-[13px] ${isH ? 'bg-orange-900/40 border-orange-500/50' : 'bg-ui-800 border-ui-700/70'} px-4 py-3 text-gray-200 rounded-2xl border ${isH ? 'rounded-br-sm' : 'rounded-br-sm'} shadow-lg relative glow-effect">
                 ${text.replace(/\n/g, '<br>')}
-                < div class= "text-[9px] ${isH ? 'text-orange-400' : 'text-brand-400/50'} text-right mt-1.5 flex justify-end items-center uppercase font-bold tracking-wider" >
+                <div class="text-[9px] ${isH ? 'text-orange-400' : 'text-brand-400/50'} text-right mt-1.5 flex justify-end items-center uppercase font-bold tracking-wider">
                 ${isH ? '<i class="fa-solid fa-user mr-1"></i> Staff' : '<i class="fa-solid fa-robot mr-1"></i> IA'}
-                        </div >
-                    </div >
+                        </div>
+                    </div>
                     `;
             } else {
                 w.className = "flex justify-start";
                 w.innerHTML = `
-                    < div class="max-w-[80%] text-[13px] bg-ui-700/50 px-4 py-3 text-white rounded-2xl border border-ui-600/30 rounded-bl-sm shadow-md" >
+                    <div class="max-w-[80%] text-[13px] bg-ui-700/50 px-4 py-3 text-white rounded-2xl border border-ui-600/30 rounded-bl-sm shadow-md">
                         ${text.replace(/\n/g, '<br>')}
                 <div class="text-[9px] text-gray-400 text-left mt-1.5 flex items-center uppercase font-bold tracking-wider">
                     <i class="fa-brands fa-whatsapp mr-1 text-emerald-500"></i> Cliente
                 </div>
-                    </div >
+                    </div>
                     `;
             }
             d.appendChild(w);
@@ -1070,10 +1127,18 @@
             if (temp.includes('morno') || temp.includes('media')) badgeCls = 'bg-yellow-500/20 text-yellow-500 border-yellow-500/30';
 
             const dmt = document.getElementById('detail-master-tags');
-            if (dmt) dmt.innerHTML = `< span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${badgeCls}" > ${lead.temperature || 'FRIO'}</span > `;
+            if (dmt) dmt.innerHTML = `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${badgeCls}">${lead.temperature || 'FRIO'}</span>`;
 
             const dms = document.getElementById('detail-master-stage');
             if (dms) dms.innerText = lead.pipeline_stage || "PROSPECÇÃO";
+
+            // [ENTERPRISE] - Povoar Edição Expressa
+            const en = document.getElementById('edit-detail-name');
+            if (en) en.value = (lead.name && lead.name !== "Desconhecido") ? lead.name : "";
+            const ee = document.getElementById('edit-detail-email');
+            if (ee) ee.value = lead.email || "";
+            const ev = document.getElementById('edit-detail-value');
+            if (ev) ev.value = lead.estimated_value || 0;
 
             // Atividade: Última mensagem e Atendente
             const lmEl = document.getElementById('detail-master-lastmsg');
@@ -1081,12 +1146,30 @@
             const agEl = document.getElementById('detail-master-agent');
             if (agEl) agEl.innerText = lead.is_paused_for_human ? 'Humano' : 'Bot';
 
+            // [AUDIT FIX] - Atualizar o badge de status no topo do chat baseado no estado real do banco
+            const btnHandoff = document.getElementById('btn-master-handoff');
+            const btnResume = document.getElementById('btn-master-resume-ai');
+            const statusBadge = document.getElementById('btn-master-status');
+            
+            if (lead.is_paused_for_human) {
+                if (statusBadge) {
+                    statusBadge.innerHTML = '<i class="fa-solid fa-user-astronaut mr-1.5"></i> Humano';
+                    statusBadge.className = 'flex items-center bg-orange-500/10 text-orange-500 border border-orange-500/30 px-3 py-1.5 rounded-full text-[11px] font-bold';
+                }
+                toggleMasterHandoff(true);
+            } else {
+                if (statusBadge) {
+                    statusBadge.innerHTML = '<i class="fa-solid fa-robot mr-1.5"></i> IA Ativa';
+                    statusBadge.className = 'flex items-center bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 px-3 py-1.5 rounded-full text-[11px] font-bold';
+                }
+                toggleMasterHandoff(false);
+            }
+
             // Mark as read
             fetchWithAuth(`/api/v1/ws/inbox/leads/${lead.id}/read`, { method: 'POST' }).catch(() => { });
             const idx = allInboxLeads.findIndex(l => l.id === lead.id);
             if (idx >= 0) allInboxLeads[idx].unread_count = 0;
 
-            closeDrawer();
             await loadMasterChat(lead.id);
             loadLeadMedia(lead.id);
         }
@@ -1097,6 +1180,8 @@
             const btn = document.getElementById('btn-send-master');
             const handoffBtn = document.getElementById('btn-master-handoff');
             const resumeBtn = document.getElementById('btn-master-resume-ai');
+            const statusBadge = document.getElementById('btn-master-status');
+            
             if (!inp || !btn) return;
 
             if (isActive) {
@@ -1104,13 +1189,26 @@
                 inp.placeholder = "Modo Humano ativado. Digite sua mensagem para o WhatsApp...";
                 if (handoffBtn) handoffBtn.classList.add('hidden');
                 if (resumeBtn) resumeBtn.classList.remove('hidden');
+                if (statusBadge) {
+                    statusBadge.innerHTML = '<i class="fa-solid fa-user-astronaut mr-1.5"></i> Humano';
+                    statusBadge.className = 'flex items-center bg-orange-500/10 text-orange-500 border border-orange-500/30 px-3 py-1.5 rounded-full text-[11px] font-bold';
+                }
                 inp.focus();
             } else {
                 inp.disabled = true; btn.disabled = true;
                 inp.placeholder = "Assuma o controle no topo (Botão Laranja) para digitar...";
                 if (handoffBtn) handoffBtn.classList.remove('hidden');
                 if (resumeBtn) resumeBtn.classList.add('hidden');
+                if (statusBadge) {
+                    statusBadge.innerHTML = '<i class="fa-solid fa-robot mr-1.5"></i> IA Ativa';
+                    statusBadge.className = 'flex items-center bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 px-3 py-1.5 rounded-full text-[11px] font-bold';
+                }
                 inp.value = '';
+                
+                // [AUDIT FIX] - Avisar backend para retomar IA
+                if (ws && ws.readyState === WebSocket.OPEN && activeLeadId) {
+                    ws.send(JSON.stringify({ action: "resume_ai", lead_id: activeLeadId }));
+                }
             }
         }
 
@@ -1146,34 +1244,44 @@
         function renderMediaContent(mediaUrl, mediaType, text) {
             if (!mediaUrl || !mediaType) return '';
 
+            // Corrigir caminho da URL se necessário
+            let fullUrl = mediaUrl;
+            if (mediaUrl.startsWith('/media/')) {
+                fullUrl = window.location.origin + mediaUrl;
+            }
+
             if (mediaType === 'audio') {
                 return `
                     <div class="my-1.5">
                         <div class="flex items-center gap-2 bg-black/20 rounded-xl px-3 py-2">
                             <i class="fa-solid fa-microphone text-emerald-400 text-sm"></i>
-                            <audio controls class="h-8 flex-1" style="max-width:240px;" preload="metadata">
-                                <source src="${mediaUrl}" type="audio/ogg">
+                            <audio id="audio-${Math.random().toString(36).substr(2, 9)}" controls class="h-8 flex-1" style="max-width:240px;" preload="metadata">
+                                <source src="${fullUrl}" type="audio/ogg">
                             </audio>
+                            <div class="flex items-center gap-1 ml-1 border-l border-white/10 pl-2">
+                                <button onclick="changeAudioSpeed(this)" class="text-[10px] font-bold text-cyan-400 hover:text-white transition-colors">1x</button>
+                            </div>
                         </div>
                         ${text && !text.startsWith('[Áudio') ? `<div class="mt-1.5 text-[12px] opacity-80">${text.replace(/\\n/g, '<br>')}</div>` : ''}
                     </div>`;
             }
 
             if (mediaType === 'image' || mediaType === 'sticker') {
+                const escapedText = (text || 'Imagem').replace(/'/g, "\\'");
                 return `
                     <div class="my-1.5">
-                        <img src="${mediaUrl}" alt="Imagem" 
+                        <img src="${fullUrl}" alt="Imagem" 
                             class="max-w-[220px] max-h-[200px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity border border-white/10"
-                            onclick="window.open(this.src, '_blank')"
+                            onclick="openImageModal(this.src, '${escapedText}')"
                             onerror="this.outerHTML='<div class=\\'text-xs text-gray-500\\'>📷 Imagem indisponível</div>'" />
-                        ${text && text !== '📷 Imagem' ? `<div class="mt-1.5 text-[12px] opacity-80">${text.replace(/\\n/g, '<br>')}</div>` : ''}
+                        ${displayText && displayText !== '📷 Imagem' ? `<div class="mt-1.5 text-[12px] opacity-80">${displayText.replace(/\\n/g, '<br>')}</div>` : ''}
                     </div>`;
             }
 
             if (mediaType === 'document') {
                 const fname = text || 'Documento';
                 return `
-                    <div class="my-1.5 flex items-center gap-2 bg-black/20 rounded-xl px-3 py-2.5 cursor-pointer hover:bg-black/30 transition-colors" onclick="window.open('${mediaUrl}', '_blank')">
+                    <div class="my-1.5 flex items-center gap-2 bg-black/20 rounded-xl px-3 py-2.5 cursor-pointer hover:bg-black/30 transition-colors" onclick="window.open('${fullUrl}', '_blank')">
                         <i class="fa-solid fa-file-pdf text-red-400 text-lg"></i>
                         <div class="flex-1 min-w-0">
                             <div class="text-xs font-semibold truncate">${fname}</div>
@@ -1187,7 +1295,7 @@
                 return `
                     <div class="my-1.5">
                         <video controls class="max-w-[240px] rounded-lg border border-white/10" preload="metadata">
-                            <source src="${mediaUrl}">
+                            <source src="${fullUrl}">
                         </video>
                         ${text && text !== '🎥 Vídeo' ? `<div class="mt-1.5 text-[12px] opacity-80">${text.replace(/\\n/g, '<br>')}</div>` : ''}
                     </div>`;
@@ -1259,6 +1367,92 @@
         }
 
         // ─── Gallery de Mídias ───
+        async function updateLeadExpress() {
+            if (!activeLeadId) return;
+            const payload = {
+                name: document.getElementById('edit-detail-name').value,
+                email: document.getElementById('edit-detail-email').value,
+                estimated_value: parseFloat(document.getElementById('edit-detail-value').value) || 0
+            };
+            try {
+                await fetchWithAuth(`/api/v1/ws/inbox/leads/${activeLeadId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                // Feedback visual sutil ou apenas logs
+                console.log("Lead atualizado via Express Edit");
+                fetchInboxLeads(); // Atualizar lista lateral
+                fetchKanbanData(); // Atualizar Kanban se visível
+            } catch (e) { console.error("Erro no Express Edit", e); }
+        }
+
+        /* --- QUICK REPLIES --- */
+        const QUICK_TEMPLATES = [
+            { cmd: "/bomdia", text: "Olá! Bom dia. Como posso te ajudar hoje?" },
+            { cmd: "/pix", text: "Segue nossa chave PIX para pagamento: CNPJ 00.000.000/0001-00. Favor enviar o comprovante aqui." },
+            { cmd: "/endereco", text: "Estamos localizados na Rua Borges, 123 - Centro. Nosso horário é das 08h às 18h." },
+            { cmd: "/proposta", text: "Sua proposta já foi gerada e enviada para o seu e-mail. Vamos agendar uma breve call para alinhamento?" }
+        ];
+
+        function openQuickReplyModal() {
+            const list = document.getElementById('quick-replies-list');
+            if (!list) return;
+            list.innerHTML = QUICK_TEMPLATES.map(t => `
+                <div onclick="useQuickReply('${t.text}')" class="p-3 rounded-lg bg-[#0a0a0f] border border-[#1e1e2e] hover:border-cyan-500/50 cursor-pointer transition-all">
+                    <p class="text-cyan-400 font-bold text-xs mb-1">${t.cmd}</p>
+                    <p class="text-[#8b8b9e] text-[11px] line-clamp-2">${t.text}</p>
+                </div>
+            `).join('');
+            document.getElementById('modal-quick-replies').classList.remove('hidden');
+            document.getElementById('modal-quick-replies').classList.add('flex');
+        }
+
+        function useQuickReply(text) {
+            const inp = document.getElementById('msg-input-master');
+            if (inp) {
+                inp.value = text;
+                document.getElementById('modal-quick-replies').classList.add('hidden');
+                document.getElementById('modal-quick-replies').classList.remove('flex');
+                toggleMasterHandoff(true); // Garante que o modo humano está on
+                inp.focus();
+            }
+        }
+
+        async function saveFollowup() {
+            if (!activeLeadId) return;
+            const hours = parseInt(document.getElementById('followup-hours').value) || 24;
+            const title = `Follow-up: Retornar contato em ${hours}h`;
+            
+            const dueDate = new Date();
+            dueDate.setHours(dueDate.getHours() + hours);
+
+            const payload = {
+                title: title,
+                description: "Lembrete automático de retorno ao lead via Terminal.",
+                assigned_to: JSON.parse(localStorage.getItem('borges_user')).full_name,
+                priority: "alta",
+                due_date: dueDate.toISOString(),
+                lead_id: activeLeadId
+            };
+
+            try {
+                await fetchWithAuth(`/api/v1/ws/tasks/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                alert("Lembrete de follow-up criado na sua lista de tarefas!");
+                document.getElementById('modal-lead-followup').classList.add('hidden');
+                document.getElementById('modal-lead-followup').classList.remove('flex');
+            } catch (e) { console.error(e); }
+        }
+
+        function openLeadFollowupModal() {
+            document.getElementById('modal-lead-followup').classList.remove('hidden');
+            document.getElementById('modal-lead-followup').classList.add('flex');
+        }
+
         async function loadLeadMedia(leadId) {
             try {
                 const res = await fetchWithAuth(`/api/v1/ws/inbox/leads/${leadId}/media`);
@@ -1269,12 +1463,18 @@
                 // Imagens
                 const imgGrid = document.getElementById('media-images-grid');
                 if (imgGrid) {
-                    if (data.images.length > 0) {
-                        imgGrid.innerHTML = data.images.map(img => `
-                            <div class="aspect-square rounded overflow-hidden cursor-pointer hover:opacity-80 transition-opacity border border-white/5" onclick="window.open('${img.media_url}', '_blank')">
-                                <img src="${img.media_url}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full bg-[#1e1e2e] text-[#3a3a4e] text-xs\\'>📷</div>'" />
-                            </div>
-                        `).join('');
+                    if (data.images && data.images.length > 0) {
+                        imgGrid.innerHTML = data.images.map(img => {
+                            const escapedText = (img.content || 'Imagem do Lead').replace(/'/g, "\\'");
+                            let fullUrl = img.media_url;
+                            if (fullUrl && fullUrl.startsWith('/media/')) fullUrl = window.location.origin + fullUrl;
+                            return `
+                                <div class="aspect-square rounded overflow-hidden cursor-pointer hover:opacity-80 transition-opacity border border-white/5" 
+                                     onclick="openImageModal('${fullUrl}', '${escapedText}')">
+                                    <img src="${fullUrl}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full bg-[#1e1e2e] text-[#3a3a4e] text-xs\\'>📷</div>'" />
+                                </div>
+                            `;
+                        }).join('');
                     } else {
                         imgGrid.innerHTML = '<span class="text-[10px] text-[#3a3a4e] col-span-3">Nenhuma imagem</span>';
                     }
@@ -1283,16 +1483,20 @@
                 // Áudios
                 const audioList = document.getElementById('media-audios-list');
                 if (audioList) {
-                    if (data.audios.length > 0) {
-                        audioList.innerHTML = data.audios.map(aud => `
-                            <div class="flex items-center gap-2 bg-[#0a0a0f] rounded-lg p-2 border border-[#1e1e2e]">
-                                <i class="fa-solid fa-play text-[10px] text-emerald-400"></i>
-                                <audio controls class="h-7 flex-1" style="max-width:180px;" preload="metadata">
-                                    <source src="${aud.media_url}" type="audio/ogg">
-                                </audio>
-                                <span class="text-[9px] text-[#5a5a6e]">${formatMsgTime(aud.created_at)}</span>
-                            </div>
-                        `).join('');
+                    if (data.audios && data.audios.length > 0) {
+                        audioList.innerHTML = data.audios.map(aud => {
+                            let fullUrl = aud.media_url;
+                            if (fullUrl && fullUrl.startsWith('/media/')) fullUrl = window.location.origin + fullUrl;
+                            return `
+                                <div class="flex items-center gap-2 bg-[#0a0a0f] rounded-lg p-2 border border-[#1e1e2e]">
+                                    <i class="fa-solid fa-play text-[10px] text-emerald-400"></i>
+                                    <audio controls class="h-7 flex-1" style="max-width:180px;" preload="metadata">
+                                        <source src="${fullUrl}" type="audio/ogg">
+                                    </audio>
+                                    <span class="text-[9px] text-[#5a5a6e]">${formatMsgTime(aud.created_at)}</span>
+                                </div>
+                            `;
+                        }).join('');
                     } else {
                         audioList.innerHTML = '<span class="text-[10px] text-[#3a3a4e]">Nenhum áudio</span>';
                     }
@@ -1301,14 +1505,18 @@
                 // Documentos
                 const docList = document.getElementById('media-docs-list');
                 if (docList) {
-                    if (data.documents.length > 0) {
-                        docList.innerHTML = data.documents.map(doc => `
-                            <div class="flex items-center gap-2 bg-[#0a0a0f] rounded-lg p-2 border border-[#1e1e2e] cursor-pointer hover:bg-[#111118] transition-colors" onclick="window.open('${doc.media_url}', '_blank')">
-                                <i class="fa-solid fa-file-pdf text-red-400"></i>
-                                <span class="text-[11px] text-gray-300 truncate flex-1">${doc.content || 'Documento'}</span>
-                                <i class="fa-solid fa-download text-[10px] text-[#5a5a6e]"></i>
-                            </div>
-                        `).join('');
+                    if (data.documents && data.documents.length > 0) {
+                        docList.innerHTML = data.documents.map(doc => {
+                            let fullUrl = doc.media_url;
+                            if (fullUrl && fullUrl.startsWith('/media/')) fullUrl = window.location.origin + fullUrl;
+                            return `
+                                <div class="flex items-center gap-2 bg-[#0a0a0f] rounded-lg p-2 border border-[#1e1e2e] cursor-pointer hover:bg-[#111118] transition-colors" onclick="window.open('${fullUrl}', '_blank')">
+                                    <i class="fa-solid fa-file-pdf text-red-400"></i>
+                                    <span class="text-[11px] text-gray-300 truncate flex-1">${doc.content || 'Documento'}</span>
+                                    <i class="fa-solid fa-download text-[10px] text-[#5a5a6e]"></i>
+                                </div>
+                            `;
+                        }).join('');
                     } else {
                         docList.innerHTML = '<span class="text-[10px] text-[#3a3a4e]">Nenhum documento</span>';
                     }
@@ -1334,20 +1542,72 @@
                     if (i) i.value = '';
                 };
             }
+
+            // [ENTERPRISE FIX] - Suporte para Enter enviar e Shift+Enter nova linha
+            const msgInp = document.getElementById('msg-input-master');
+            if (msgInp) {
+                msgInp.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendMsgFormM.requestSubmit();
+                    }
+                });
+            }
+        }
+
+        async function sendMediaFile(file) {
+            if (!file || !activeLeadId) return;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                // Feedback visual imediato (Opcional: poderia desenhar um skeleton)
+                const res = await fetch(`/api/v1/ws/inbox/leads/${activeLeadId}/send-media`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('borges_token')}` },
+                    body: formData
+                });
+                
+                if (res.ok) {
+                    console.log("Mídia enviada com sucesso!");
+                    document.getElementById('chat-file-input').value = ""; // Limpar input
+                }
+            } catch (e) { console.error("Erro ao enviar mídia", e); }
         }
 
         /* --- WEBSOCKET ENGINE --- */
+        let wsHeartbeatInterval = null;
+
         function connectWebSocket() {
             const token = localStorage.getItem('borges_token');
             if (!token) return;
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/inbox/stream?token=${token}`;
+            
+            if (ws) {
+                ws.onclose = null;
+                ws.close();
+            }
+
             ws = new WebSocket(wsUrl);
 
-            ws.onopen = () => console.log('✅ Borges WebSocket Integrado ao Inbox!');
+            ws.onopen = () => {
+                console.log('✅ Borges WebSocket Integrado ao Inbox!');
+                if (wsHeartbeatInterval) clearInterval(wsHeartbeatInterval);
+                wsHeartbeatInterval = setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: "ping" }));
+                }, 30000);
+            };
+
             ws.onmessage = (e) => {
                 try {
                     const data = JSON.parse(e.data);
+                    
+                    // Notification Logic
+                    if (data.type === 'inbox_update' && data.message && data.message.sender_type === 'client') {
+                        showGlobalNotification(data);
+                    }
 
                     if (data.type === 'dashboard_update') {
                         fetchDashboardMock();
@@ -1366,8 +1626,36 @@
                     }
                 } catch (err) { }
             };
-            ws.onclose = () => { setTimeout(connectWebSocket, 3000); };
+            
+            ws.onerror = (err) => {
+                console.error("WS Error:", err);
+            };
+
+            ws.onclose = () => { 
+                console.log("WS Connection closed. Reconnecting...");
+                if (wsHeartbeatInterval) clearInterval(wsHeartbeatInterval);
+                setTimeout(connectWebSocket, 2000); 
+            };
         }
+
+        function showGlobalNotification(data) {
+            const dot = document.getElementById('global-notif-dot');
+            if (dot) {
+                dot.classList.remove('hidden');
+                dot.classList.add('animate-pulse');
+            }
+            
+            // Native Browser Notification
+            if (Notification.permission === "granted") {
+                new Notification(`Borges OS: Nova mensagem`, {
+                    body: `${data.message.content}`,
+                    icon: '/favicon.ico'
+                });
+            } else if (Notification.permission !== "denied") {
+                Notification.requestPermission();
+            }
+        }
+
         /* --- BASE 44 AI BRAIN ANIMATION --- */
         function initAIBrain() {
             const canvas = document.getElementById('aibrain-canvas');
@@ -1622,15 +1910,16 @@
             container.scrollTop = container.scrollHeight;
 
             try {
-                // Mocking LLM interaction locally if we don't have the explicit route yet
-                // In production, this would call /api/v1/ai/invoke
-
-                // Simulating network delay
-                await new Promise(resolve => setTimeout(resolve, 1500));
-
-                const response = `**Análise Concluída.**\n\nRecebi sua solicitação: "${text}". No momento o endpoint LLM nativo está sendo configurado. Baseado nos dados em memória local, recomendo darmos foco nos leads marcados como "Quentes" na coluna de Negociação.`;
-
-                appendAIMessage('assistant', response);
+                const res = await fetchWithAuth(`/api/v1/ai/strategic-analysis?prompt=${encodeURIComponent(text)}`, {
+                    method: 'POST'
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    appendAIMessage('assistant', data.response);
+                } else {
+                    throw new Error("API Error");
+                }
             } catch (error) {
                 console.error("AI Error:", error);
                 appendAIMessage('assistant', "Erro de conexão com o Core Neurológico. Tente novamente em instantes.");
@@ -2229,7 +2518,54 @@
             switchView('inbox');
             openInboxMaster(lead);
         }
+
+        /* --- MODAL LOGIC --- */
+        function openImageModal(src, caption = "") {
+            const modal = document.getElementById("image-modal");
+            const modalImg = document.getElementById("modal-img");
+            const captionText = document.getElementById("modal-caption");
+            if (!modal || !modalImg) return;
+            
+            modal.style.display = "block";
+            modalImg.src = src;
+            if (captionText) captionText.innerHTML = caption;
+        }
+
+        function closeImageModal() {
+            const modal = document.getElementById("image-modal");
+            if (modal) modal.style.display = "none";
+        }
+
+        window.onclick = function(event) {
+            const modal = document.getElementById("image-modal");
+            if (event.target == modal) closeImageModal();
+        }
+
+        /* --- AUDIO SPEED CONTROL --- */
+        function changeAudioSpeed(btn) {
+            const player = btn.closest('.flex').querySelector('audio');
+            if (!player) return;
+            
+            const speeds = [1, 1.5, 2];
+            let current = parseFloat(btn.innerText.replace('x', ''));
+            let nextIndex = (speeds.indexOf(current) + 1) % speeds.length;
+            let nextSpeed = speeds[nextIndex];
+            
+            player.playbackRate = nextSpeed;
+            btn.innerText = nextSpeed + 'x';
+            
+            if (nextSpeed > 1) {
+                btn.classList.add('text-emerald-400');
+                btn.classList.remove('text-cyan-400');
+            } else {
+                btn.classList.remove('text-emerald-400');
+                btn.classList.add('text-cyan-400');
+            }
+        }
     </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+    
     <style>
         body {
             background-color: #020617;
@@ -2440,11 +2776,63 @@
             border-left: 3px solid var(--accent-cyan);
         }
 
+        /* ... drawer etc ... */
         .gradient-text {
             background: linear-gradient(135deg, #06b6d4, #0e7490);
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
+        }
+
+        /* MODAL PREMIUM FIX */
+        #image-modal {
+            display: none;
+            position: fixed;
+            z-index: 9999;
+            padding-top: 40px;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(2, 6, 23, 0.95);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+        .modal-content {
+            margin: auto;
+            display: block;
+            max-width: 90%;
+            max-height: 85vh;
+            border-radius: 16px;
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            animation: zoomModal 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        @keyframes zoomModal {
+            from {transform:scale(0.8); opacity: 0;} 
+            to {transform:scale(1); opacity: 1;}
+        }
+        .modal-close {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: #f1f1f1;
+            font-size: 40px;
+            font-weight: bold;
+            transition: 0.3s;
+            cursor: pointer;
+            z-index: 10000;
+        }
+        .modal-close:hover { color: #06b6d4; }
+        #modal-caption {
+            margin: auto;
+            display: block;
+            width: 80%;
+            max-width: 700px;
+            text-align: center;
+            color: #8b8b9e;
+            padding: 20px 0;
+            font-weight: 500;
         }
     </style>
 </head>
@@ -2510,6 +2898,11 @@
                 <i class="fa-solid fa-chart-pie w-5 h-5 flex-shrink-0 flex items-center justify-center"></i>
                 <span>Relatórios</span>
             </button>
+            <button onclick="switchView('audit', this)"
+                class="nav-item text-[#8b8b9e] hover:text-white hover:bg-[#1c1c28] w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200">
+                <i class="fa-solid fa-fingerprint w-5 h-5 flex-shrink-0 flex items-center justify-center"></i>
+                <span>Logs do Sistema</span>
+            </button>
             <button onclick="switchView('super-admin', this)" id="nav-btn-superadmin"
                 class="nav-item hidden text-rose-500 hover:text-white hover:bg-rose-500/10 w-full items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200">
                 <i class="fa-solid fa-building-shield w-5 h-5 flex-shrink-0 flex items-center justify-center"></i>
@@ -2533,7 +2926,7 @@
                     <p class="text-sm font-semibold text-white truncate" id="sidebar-name">Carregando...</p>
                     <p class="text-[10px] text-[#5a5a6e] truncate" id="sidebar-role">System Admin</p>
                 </div>
-                <button
+                <button onclick="handleLogout()"
                     class="p-1.5 rounded-lg text-[#5a5a6e] hover:text-white hover:bg-[#1c1c28] transition-colors shrink-0">
                     <i class="fa-solid fa-right-from-bracket w-4 h-4 flex items-center justify-center"></i>
                 </button>
@@ -2563,13 +2956,17 @@
                 </div>
             </div>
 
-            <div class="flex items-center gap-3 ml-auto">
-                <button
-                    class="relative p-2 rounded-lg text-[#5a5a6e] hover:text-white hover:bg-[#1c1c28] transition-colors">
-                    <i class="fa-regular fa-bell w-4 h-4 text-[16px]"></i>
-                    <span class="absolute top-1.5 right-2 w-2 h-2 bg-cyan-500 rounded-full"></span>
-                </button>
-            </div>
+                    <div class="flex items-center gap-3 ml-auto">
+                        <button onclick="switchView('audit', this)" id="nav-btn-audit-top"
+                            class="relative p-2 rounded-lg text-[#5a5a6e] hover:text-white hover:bg-[#1c1c28] transition-colors">
+                            <i class="fa-solid fa-fingerprint w-4 h-4 text-[16px]"></i>
+                        </button>
+                        <button
+                            class="relative p-2 rounded-lg text-[#5a5a6e] hover:text-white hover:bg-[#1c1c28] transition-colors">
+                            <i class="fa-regular fa-bell w-4 h-4 text-[16px]"></i>
+                            <span class="absolute top-1.5 right-2 w-2 h-2 bg-cyan-500 rounded-full hidden" id="global-notif-dot"></span>
+                        </button>
+                    </div>
         </header>
 
         <!-- VIEWS CONTAINER -->
@@ -2963,12 +3360,18 @@
                                             <button id="detail-btn-connect-wpp"
                                                 onclick="connectTenantWhatsApp(currentTenantConfigId)"
                                                 class="flex-shrink-0 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-emerald-600/20 whitespace-nowrap flex items-center gap-2">
-                                                <i class="fa-brands fa-whatsapp text-lg"></i> Conectar WhatsApp
+                                                <i class="fa-brands fa-whatsapp text-lg"></i> WhatsApp
+                                            </button>
+                                            <button id="detail-btn-connect-insta"
+                                                onclick="connectTenantInstagram(currentTenantConfigId)"
+                                                class="flex-shrink-0 bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white px-4 py-3 rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-purple-600/20 whitespace-nowrap flex items-center gap-2">
+                                                <i class="fa-brands fa-instagram text-lg"></i> Instagram
                                             </button>
                                         </div>
-                                        <p id="detail-wpp-status" class="text-xs mt-2 text-gray-500 italic"><i
-                                                class="fa-solid fa-circle text-[8px] mr-1 text-gray-500"></i> Status:
-                                            Desconhecido</p>
+                                        <div class="flex flex-col gap-1 mt-2">
+                                            <p id="detail-wpp-status" class="text-[10px] text-gray-500 italic"><i class="fa-solid fa-circle text-[6px] mr-1"></i> WhatsApp: Desconhecido</p>
+                                            <p id="detail-insta-status" class="text-[10px] text-gray-500 italic"><i class="fa-solid fa-circle text-[6px] mr-1"></i> Instagram: Desconhecido</p>
+                                        </div>
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-400 mb-2">Tempo SLA (Horas p/
@@ -3217,6 +3620,39 @@
                                 <p class="text-[10px] text-[#5a5a6e]">leads em risco</p>
                             </div>
                         </div>
+
+                        <!-- NEW: Dashboard Widgets -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 pb-10">
+                            <!-- Temperature Chart Widget -->
+                            <div class="rounded-xl border border-[#1e1e2e] bg-[#111118] p-5">
+                                <h3 class="text-sm font-semibold text-white mb-1">Leads por Temperatura</h3>
+                                <p class="text-[10px] text-[#5a5a6e] mb-4">Engajamento térmico da base</p>
+                                <div class="flex items-center justify-center h-[180px] relative">
+                                    <canvas id="dash-temp-chart" width="160" height="180"></canvas>
+                                    <div class="absolute flex flex-col items-center justify-center pointer-events-none">
+                                        <span class="text-[10px] text-[#5a5a6e] uppercase font-bold">Total</span>
+                                        <span class="text-lg font-bold text-white" id="dash-temp-total">--</span>
+                                    </div>
+                                </div>
+                                <div class="flex justify-center gap-4 mt-2">
+                                    <div class="flex items-center gap-1.5 text-[10px]"><div class="w-2 h-2 rounded-full bg-[#ef4444]"></div> <span class="text-[#8b8b9e]">Quente</span></div>
+                                    <div class="flex items-center gap-1.5 text-[10px]"><div class="w-2 h-2 rounded-full bg-[#f59e0b]"></div> <span class="text-[#8b8b9e]">Morno</span></div>
+                                    <div class="flex items-center gap-1.5 text-[10px]"><div class="w-2 h-2 rounded-full bg-[#3b82f6]"></div> <span class="text-[#8b8b9e]">Frio</span></div>
+                                </div>
+                            </div>
+
+                            <!-- Latest Activities Widget -->
+                            <div class="rounded-xl border border-[#1e1e2e] bg-[#111118] p-5 flex flex-col">
+                                <h3 class="text-sm font-semibold text-white mb-1">Últimas Atividades</h3>
+                                <p class="text-[10px] text-[#5a5a6e] mb-4">Interações recentes no Terminal</p>
+                                <div id="dash-recent-activities" class="space-y-3 flex-1">
+                                    <div class="flex flex-col items-center justify-center py-10 opacity-20">
+                                        <i class="fa-solid fa-bolt-lightning text-3xl mb-2"></i>
+                                        <p class="text-xs">Sincronizando...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div> <!-- End inner wrapper -->
             </div>
@@ -3373,18 +3809,23 @@
                             </div>
                         </div>
 
-                        <!-- Handoff & Controls Navbar -->
                         <div class="flex items-center gap-3">
                             <!-- Toggle IA/Humano simulado no Botão -->
                             <button id="btn-master-status"
-                                class="flex items-center bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 px-3 py-1.5 rounded-full text-[11px] font-bold"
-                                onclick="toggleMasterHandoff(true)">
-                                <i class="fa-solid fa-user-astronaut mr-1.5"></i> Humano
+                                class="flex items-center bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 px-3 py-1.5 rounded-full text-[11px] font-bold">
+                                <i class="fa-solid fa-robot mr-1.5"></i> IA Ativa
                             </button>
+                            
+                            <button id="btn-master-handoff"
+                                class="flex items-center bg-orange-600 hover:bg-orange-500 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors shadow-lg shadow-orange-600/20"
+                                onclick="toggleMasterHandoff(true)">
+                                <i class="fa-solid fa-user-astronaut mr-1.5"></i> Assumir Controle
+                            </button>
+
                             <button id="btn-master-resume-ai"
-                                class="hidden flex items-center bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 px-3 py-1.5 rounded-full text-[11px] font-bold"
+                                class="hidden flex items-center bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors shadow-lg shadow-cyan-600/20"
                                 onclick="toggleMasterHandoff(false)">
-                                <i class="fa-solid fa-robot mr-1.5"></i> Modo Bot
+                                <i class="fa-solid fa-play mr-1.5"></i> Reativar IA
                             </button>
                             <!-- Toggle Detalhes -->
                             <button
@@ -3417,7 +3858,8 @@
 
                             <!-- Left Icons -->
                             <div class="flex space-x-2 pl-4 text-[#5a5a6e]">
-                                <i
+                                <input type="file" id="chat-file-input" class="hidden" onchange="sendMediaFile(this.files[0])">
+                                <i onclick="document.getElementById('chat-file-input').click()"
                                     class="fa-solid fa-paperclip hover:text-white cursor-pointer transition-colors p-2 rounded hover:bg-[#1e1e2e]"></i>
                                 <i
                                     class="fa-regular fa-face-smile hover:text-white cursor-pointer transition-colors p-2 rounded hover:bg-[#1e1e2e]"></i>
@@ -3467,6 +3909,15 @@
                                     class="fa-brands fa-whatsapp text-xs"></i> WhatsApp</span>
                         </div>
 
+                        <div class="flex items-center gap-3">
+                            <button onclick="openLeadFollowupModal()" class="flex-1 py-2 rounded-lg bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 text-[10px] font-bold uppercase hover:bg-yellow-500/20 transition-all">
+                                <i class="fa-regular fa-clock mr-1"></i> Lembrete
+                            </button>
+                            <button onclick="openQuickReplyModal()" class="flex-1 py-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[10px] font-bold uppercase hover:bg-cyan-500/20 transition-all">
+                                <i class="fa-solid fa-bolt mr-1"></i> Atalhos
+                            </button>
+                        </div>
+
                         <hr class="border-[#1e1e2e]">
 
                         <!-- Panel de Atividade -->
@@ -3499,7 +3950,21 @@
                             </div>
 
                             <!-- Tab: Info -->
-                            <div id="detail-content-info">
+                            <div id="detail-content-info" class="space-y-4">
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="text-[10px] text-[#5a5a6e] uppercase font-bold mb-1 block">Nome do Lead</label>
+                                        <input type="text" id="edit-detail-name" onchange="updateLeadExpress()" class="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-xs text-white focus:border-cyan-500/50 outline-none">
+                                    </div>
+                                    <div>
+                                        <label class="text-[10px] text-[#5a5a6e] uppercase font-bold mb-1 block">E-mail</label>
+                                        <input type="email" id="edit-detail-email" onchange="updateLeadExpress()" class="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-xs text-white focus:border-cyan-500/50 outline-none">
+                                    </div>
+                                    <div>
+                                        <label class="text-[10px] text-[#5a5a6e] uppercase font-bold mb-1 block">Valor Estimado (R$)</label>
+                                        <input type="number" id="edit-detail-value" onchange="updateLeadExpress()" class="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-xs text-white focus:border-cyan-500/50 outline-none">
+                                    </div>
+                                </div>
                                 <div id="detail-master-tags" class="hidden"></div>
                                 <div id="detail-master-stage" class="hidden"></div>
                             </div>
@@ -3974,6 +4439,96 @@
                 </div>
             </div>
 
+            <!-- ==========================================
+                 VIEW: CONTRACTS (Gestão de Contratos)
+            =========================================== -->
+            <div id="view-contracts" class="app-view bg-[#0a0a0f] h-full w-full hidden overflow-y-auto custom-scroll relative">
+                <div class="fixed top-20 right-1/2 translate-x-1/2 w-3/4 h-[400px] bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none z-0"></div>
+                <div class="max-w-[1000px] mx-auto px-6 py-12 relative z-10 w-full min-h-full flex flex-col">
+                    <div class="flex items-end justify-between mb-8">
+                        <div>
+                            <h1 class="text-3xl font-extrabold text-[#f8fafc] tracking-tight mb-2 flex items-center gap-3">
+                                <span class="bg-emerald-500/20 text-emerald-400 p-2 rounded-xl text-xl shadow-[0_0_15px_rgba(16,185,129,0.15)]"><i class="fa-solid fa-file-signature"></i></span>
+                                Gestão de Contratos
+                            </h1>
+                            <p class="text-[#8b8b9e] text-sm ml-[52px]">Acompanhe o status dos seus contratos e fechamentos.</p>
+                        </div>
+                        <button onclick="openContractModal()" class="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all flex items-center gap-2">
+                            <i class="fa-solid fa-plus"></i> <span>Novo Contrato</span>
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                        <div class="glass-panel p-5 rounded-2xl border-[#1e1e2e] bg-[#111118]/60">
+                            <p class="text-[10px] uppercase font-bold text-[#5a5a6e] tracking-widest mb-1">Total Assinado</p>
+                            <h3 class="text-2xl font-black text-emerald-400" id="contract-stat-signed">R$ 0</h3>
+                        </div>
+                        <div class="glass-panel p-5 rounded-2xl border-[#1e1e2e] bg-[#111118]/60">
+                            <p class="text-[10px] uppercase font-bold text-[#5a5a6e] tracking-widest mb-1">Aguardando</p>
+                            <h3 class="text-2xl font-black text-amber-400" id="contract-stat-pending">R$ 0</h3>
+                        </div>
+                        <div class="glass-panel p-5 rounded-2xl border-[#1e1e2e] bg-[#111118]/60">
+                            <p class="text-[10px] uppercase font-bold text-[#5a5a6e] tracking-widest mb-1">Conversão</p>
+                            <h3 class="text-2xl font-black text-cyan-400" id="contract-stat-rate">0%</h3>
+                        </div>
+                    </div>
+
+                    <div class="flex-1">
+                        <div class="overflow-hidden rounded-2xl border border-[#1e1e2e] bg-[#111118]/40 backdrop-blur-md shadow-2xl">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-[#0a0a0f]/80 text-[#5a5a6e] text-[10px] uppercase tracking-wider font-bold border-b border-[#1e1e2e]">
+                                        <th class="px-6 py-4">Título / Lead</th>
+                                        <th class="px-6 py-4">Valor</th>
+                                        <th class="px-6 py-4">Status</th>
+                                        <th class="px-6 py-4">Data</th>
+                                        <th class="px-6 py-4 text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="contracts-list-body" class="divide-y divide-[#1e1e2e]">
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Novo Contrato -->
+                <div id="modal-new-contract" class="fixed inset-0 z-[100] bg-[#0a0a0f]/80 backdrop-blur-md hidden items-center justify-center">
+                    <div class="bg-[#111118] border border-[#1e1e2e] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+                        <div class="h-[60px] border-b border-[#1e1e2e] flex items-center justify-between px-6 bg-[#16161e]">
+                            <h3 class="font-bold text-white flex items-center gap-2.5 text-[15px]"><i class="fa-solid fa-file-invoice bg-emerald-500/20 text-emerald-400 p-1.5 rounded-md text-xs"></i> Novo Contrato</h3>
+                            <button onclick="closeContractModal()" class="text-[#5a5a6e] hover:text-white transition-colors"><i class="fa-solid fa-times"></i></button>
+                        </div>
+                        <form id="form-new-contract" onsubmit="submitContract(event)" class="p-6 space-y-5">
+                            <div>
+                                <label class="block text-[10px] uppercase tracking-wider font-bold text-[#5a5a6e] mb-1.5 pl-1">Título do Contrato *</label>
+                                <input type="text" id="contract-input-title" required class="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500/50 transition-all" placeholder="Ex: Contrato de Prestação de Serviços - Clínica X">
+                            </div>
+                            <div class="grid grid-cols-2 gap-5">
+                                <div>
+                                    <label class="block text-[10px] uppercase tracking-wider font-bold text-[#5a5a6e] mb-1.5 pl-1">Valor (R$)</label>
+                                    <input type="number" id="contract-input-value" class="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500/50 transition-all" placeholder="0.00">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] uppercase tracking-wider font-bold text-[#5a5a6e] mb-1.5 pl-1">Duração (Meses)</label>
+                                    <input type="number" id="contract-input-duration" value="12" class="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500/50 transition-all">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] uppercase tracking-wider font-bold text-[#5a5a6e] mb-1.5 pl-1">Vincular Lead (ID)</label>
+                                <input type="text" id="contract-input-lead" class="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500/50 transition-all" placeholder="UUID do lead ou deixe em branco">
+                            </div>
+                            <div class="pt-6 pb-2">
+                                <button type="submit" id="btn-save-contract" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3.5 rounded-xl text-sm font-extrabold shadow-[0_0_20px_rgba(16,185,129,0.25)] transition-all tracking-wide">
+                                    Gerar Contrato
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
             <div id="view-ai" class="app-view flex-col hidden h-full">
                 <!-- Header -->
                 <div class="px-6 py-5 border-b border-[#1e1e2e]"
@@ -4347,6 +4902,37 @@
                 </div>
             </div>
 
+            <!-- ==========================================
+                 VIEW: AUDIT LOGS (Trilha de Auditoria)
+            =========================================== -->
+            <div id="view-audit" class="app-view h-full overflow-y-auto custom-scroll p-6 md:p-10 hidden">
+                <div class="max-w-5xl mx-auto w-full">
+                    <div class="mb-8">
+                        <h1 class="text-2xl font-bold text-white flex items-center gap-3">
+                            <i class="fa-solid fa-fingerprint text-cyan-400"></i> Trilha de Auditoria
+                        </h1>
+                        <p class="text-xs text-[#5a5a6e] mt-1">Histórico completo de alterações e atividades da equipe.</p>
+                    </div>
+
+                    <div class="rounded-2xl border border-[#1e1e2e] bg-[#111118]/40 overflow-hidden shadow-2xl">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-[#0a0a0f]/80 text-[#5a5a6e] text-[10px] uppercase tracking-wider font-bold border-b border-[#1e1e2e]">
+                                    <th class="px-6 py-4">Horário</th>
+                                    <th class="px-6 py-4">Usuário</th>
+                                    <th class="px-6 py-4">Ação</th>
+                                    <th class="px-6 py-4">Alvo</th>
+                                    <th class="px-6 py-4">Detalhes</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audit-logs-body" class="divide-y divide-[#1e1e2e]/50">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <div id="view-settings" class="app-view h-full overflow-y-auto custom-scroll p-4 lg:p-6 space-y-6 hidden"
                 style="background: linear-gradient(135deg,#0a0a0f 0%,#0d1117 50%,#0a0f1a 100%); position: relative;">
                 <div style="position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0">
@@ -4592,12 +5178,7 @@
                 if (!res.ok) throw new Error("API not ok");
                 const data = await res.json();
 
-                const tbody = document.getElementById('tenants-list-body');
-                if (!tbody) return;
-
-                tbody.innerHTML = '';
-
-                // Preencher as Métricas Globais (Aggregates do backend)
+                // Preencher as Métricas Globais
                 if (data.aggregates) {
                     const elTenants = document.getElementById('global-metric-tenants');
                     const elMrr = document.getElementById('global-metric-mrr');
@@ -4606,49 +5187,52 @@
 
                     if (elTenants) elTenants.innerText = data.aggregates.total_tenants || 0;
                     if (elMrr) elMrr.innerText = `R$ ${Number(data.aggregates.total_mrr || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
-
-                    // ARR = Annual Recurring Revenue (MRR * 12)
                     const totalArr = (data.aggregates.total_mrr || 0) * 12;
                     if (elArr) elArr.innerText = `R$ ${Number(totalArr).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
-
                     if (elSetup) elSetup.innerText = `R$ ${Number(data.aggregates.total_setup || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
                 }
 
+                const tbody = document.getElementById('tenants-list-body');
+                if (!tbody) {
+                    return;
+                }
+
+                tbody.innerHTML = '';
+
                 if (data.status === 'success' && data.data) {
                     data.data.forEach(t => {
-                        const isAguardando = t.whatsapp_number === 'Aguardando Conexão';
+                        const isAguardando = !t.whatsapp_number || t.whatsapp_number === 'Aguardando Conexão';
                         const wppSpan = isAguardando
-                            ? `<span class="bg-rose-500/10 text-rose-500 border border-rose-500/20 px-2 py-1 rounded text-xs"><i
-            class="fa-solid fa-triangle-exclamation"></i> Aguardando</span>`
-                            : `<span class="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-1 rounded text-xs"><i
-            class="fa-brands fa-whatsapp"></i> ${t.whatsapp_number}</span>`;
+                            ? `<span class="bg-rose-500/10 text-rose-500 border border-rose-500/20 px-2 py-1 rounded text-xs"><i class="fa-solid fa-triangle-exclamation"></i> Aguardando</span>`
+                            : `<span class="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-1 rounded text-xs"><i class="fa-brands fa-whatsapp"></i> ${t.whatsapp_number}</span>`;
 
-                        tbody.innerHTML += `
-    <tr class="hover:bg-[#1c1c28] transition-colors">
-        <td class="px-5 py-4 font-medium text-white">
-            <div class="flex items-center gap-3">
-                <div
-                    class="w-8 h-8 rounded bg-gradient-to-br from-[#1e1e2e] to-[#2a2a35] flex items-center justify-center font-bold text-gray-400">
-                    ${t.name.substring(0, 2).toUpperCase()}
-                </div>
-                ${t.name}
-            </div>
-        </td>
-        <td class="px-5 py-4">${wppSpan}</td>
-        <td class="px-5 py-4 text-emerald-400 font-bold">R$ ${Number(t.plan_value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-        <td class="px-5 py-4 text-cyan-500 font-semibold">R$ ${Number(t.setup_value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-        <td class="px-5 py-4 text-right flex justify-end gap-2">
-            <button onclick="openTenantDetails('${t.id}')"
-                class="text-xs bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-lg transition-colors shadow-lg shadow-rose-600/20">
-                <i class="fa-solid fa-gear"></i> Configurar
-            </button>
-            <button onclick="connectTenantWhatsApp('${t.id}')"
-                class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg transition-colors shadow-lg shadow-emerald-600/20">
-                <i class="fa-brands fa-whatsapp text-sm"></i> Conectar WhatsApp
-            </button>
-        </td>
-    </tr>
-    `;
+                        const isInstaConnected = t.evolution_instance_id && t.evolution_instance_id.includes('insta');
+                        const instaSpan = isInstaConnected
+                            ? `<span class="bg-purple-500/10 text-purple-500 border border-purple-500/20 px-2 py-1 rounded text-xs ml-2"><i class="fa-brands fa-instagram"></i> Online</span>`
+                            : `<span class="bg-gray-500/10 text-gray-500 border border-gray-500/20 px-2 py-1 rounded text-xs ml-2"><i class="fa-brands fa-instagram"></i> Off</span>`;
+
+                        const tr = document.createElement('tr');
+                        tr.className = "hover:bg-[#1c1c28] transition-colors border-b border-[#1e1e2e]";
+                        tr.innerHTML = `
+                            <td class="px-5 py-4 font-medium text-white">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded bg-gradient-to-br from-[#1e1e2e] to-[#2a2a35] flex items-center justify-center font-bold text-gray-400">
+                                        ${t.name.substring(0, 2).toUpperCase()}
+                                    </div>
+                                    ${t.name}
+                                </div>
+                            </td>
+                            <td class="px-5 py-4 flex items-center">${wppSpan} ${instaSpan}</td>
+                            <td class="px-5 py-4 text-emerald-400 font-bold">R$ ${Number(t.plan_value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                            <td class="px-5 py-4 text-cyan-500 font-semibold">R$ ${Number(t.setup_value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                            <td class="px-5 py-4 text-right flex justify-end gap-2">
+                                <button onclick="openTenantDetails('${t.id}')"
+                                    class="text-xs bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-lg transition-colors shadow-lg shadow-rose-600/20">
+                                    <i class="fa-solid fa-gear"></i> Configurar
+                                </button>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
                     });
                 }
             } catch (e) { console.error("Error fetching tenants:", e); }
@@ -4756,12 +5340,22 @@
                     const wppStatusEl = document.getElementById('detail-wpp-status');
                     if (t.whatsapp_number && t.whatsapp_number !== "Aguardando Conexão" && t.whatsapp_number !== "Pendente") {
                         document.getElementById('detail-whatsapp').value = t.whatsapp_number;
-                        wppStatusEl.innerHTML = '<i class="fa-solid fa-circle text-[8px] mr-1 text-emerald-500"></i> <span class="text-emerald-500 font-medium">Conectado e Operante</span>';
-                        document.getElementById('detail-btn-connect-wpp').innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> Reconectar';
+                        wppStatusEl.innerHTML = '<i class="fa-solid fa-circle text-[6px] mr-1 text-emerald-500"></i> <span class="text-emerald-500 font-medium">WhatsApp: Online</span>';
+                        document.getElementById('detail-btn-connect-wpp').innerHTML = '<i class="fa-brands fa-whatsapp"></i> WhatsApp (OK)';
                     } else {
                         document.getElementById('detail-whatsapp').value = "";
-                        wppStatusEl.innerHTML = '<i class="fa-solid fa-circle text-[8px] mr-1 text-amber-500"></i> <span class="text-amber-500 font-medium">Aguardando Conexão</span>';
-                        document.getElementById('detail-btn-connect-wpp').innerHTML = '<i class="fa-brands fa-whatsapp text-lg"></i> Conectar WhatsApp';
+                        wppStatusEl.innerHTML = '<i class="fa-solid fa-circle text-[6px] mr-1 text-amber-500"></i> <span class="text-amber-500 font-medium">WhatsApp: Pendente</span>';
+                        document.getElementById('detail-btn-connect-wpp').innerHTML = '<i class="fa-brands fa-whatsapp"></i> Conectar WPP';
+                    }
+
+                    // Instagram Status (Mock logic based on instance existence for now)
+                    const instaStatusEl = document.getElementById('detail-insta-status');
+                    if (t.evolution_instance_id && t.evolution_instance_id.includes('insta')) {
+                        instaStatusEl.innerHTML = '<i class="fa-solid fa-circle text-[6px] mr-1 text-purple-500"></i> <span class="text-purple-500 font-medium">Instagram: Ativo</span>';
+                        document.getElementById('detail-btn-connect-insta').innerHTML = '<i class="fa-brands fa-instagram"></i> Instagram (OK)';
+                    } else {
+                        instaStatusEl.innerHTML = '<i class="fa-solid fa-circle text-[6px] mr-1 text-gray-500"></i> <span class="text-gray-500 font-medium">Instagram: Desconectado</span>';
+                        document.getElementById('detail-btn-connect-insta').innerHTML = '<i class="fa-brands fa-instagram"></i> Conectar Insta';
                     }
 
                     document.getElementById('detail-sla').value = t.sla_hours || 24;
@@ -4883,6 +5477,31 @@
             }
         }
 
+        async function connectTenantInstagram(tenantId) {
+            try {
+                const res = await fetchWithAuth('/api/v1/super/instagram/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tenant_id: tenantId })
+                });
+                const data = await res.json();
+                
+                if (res.ok && data.login_url) {
+                    // Abrir janela de login do Facebook/Meta para autorizar Instagram
+                    const width = 600, height = 700;
+                    const left = (window.innerWidth / 2) - (width / 2);
+                    const top = (window.innerHeight / 2) - (height / 2);
+                    window.open(data.login_url, 'Conectar Instagram', `width=${width},height=${height},left=${left},top=${top}`);
+                    
+                    alert("Uma janela de login do Facebook foi aberta. Por favor, autorize o acesso para conectar o Instagram.");
+                } else if (data.is_connected) {
+                    alert("Instagram já está conectado nesta instância!");
+                } else {
+                    alert("Erro ao iniciar conexão: " + (data.detail || "Falha na Evolution API"));
+                }
+            } catch (e) { alert("Falha de rede."); }
+        }
+
         async function connectTenantWhatsApp(tenantId) {
             document.getElementById('modal-qr-code').classList.remove('hidden');
             document.getElementById('modal-qr-code').classList.add('flex');
@@ -4909,6 +5528,29 @@
                     qrImg.style.display = 'block';
                     spinnerBox.style.display = 'none';
                     statusText.innerHTML = `<i class="fa-solid fa-qrcode text-emerald-500 mr-1"></i> Instância: <span class="text-white font-bold mx-1">${data.instance}</span> <br class="block sm:hidden" /> <span class="text-emerald-400">aguardando leitura.</span>`;
+                    
+                    // Iniciar polling para fechar automaticamente quando conectar
+                    const checkInterval = setInterval(async () => {
+                        try {
+                            const checkRes = await fetchWithAuth(`/api/v1/super/tenants/${tenantId}`);
+                            if (checkRes.ok) {
+                                const tData = await checkRes.json();
+                                const num = tData.data.whatsapp_number;
+                                if (num && num !== "Aguardando Conexão" && num !== "Pendente") {
+                                    clearInterval(checkInterval);
+                                    statusText.innerHTML = `<i class="fa-solid fa-check-circle text-emerald-500 text-xl mb-2"></i><br/> Conectado: ${num}!`;
+                                    setTimeout(() => {
+                                        closeQrCodeModal();
+                                        fetchTenants();
+                                    }, 2000);
+                                }
+                            }
+                        } catch (e) { console.error("Erro no polling de conexão", e); }
+                    }, 3000);
+
+                    // Limpar interval se fechar o modal manualmente
+                    window.currentQrInterval = checkInterval;
+
                 } else if (!res.ok) {
                     spinnerBox.style.display = 'none';
                     statusText.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-rose-500"></i> ${data.detail || "Erro na Evolution API"}`;
@@ -4928,7 +5570,28 @@
             }
         }
 
+        async function disconnectTenantWhatsApp(tenantId) {
+            if (!confirm("Deseja realmente desconectar e remover esta instância de WhatsApp?")) return;
+            try {
+                const res = await fetchWithAuth('/api/v1/super/whatsapp/disconnect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tenant_id: tenantId })
+                });
+                if (res.ok) {
+                    alert("WhatsApp desconectado com sucesso!");
+                    fetchTenants();
+                } else {
+                    const data = await res.json();
+                    alert("Erro ao desconectar: " + (data.detail || "Erro desconhecido"));
+                }
+            } catch (e) {
+                alert("Falha ao conectar com o servidor.");
+            }
+        }
+
         function closeQrCodeModal() {
+            if (window.currentQrInterval) clearInterval(window.currentQrInterval);
             document.getElementById('modal-qr-code').classList.add('hidden');
             document.getElementById('modal-qr-code').classList.remove('flex');
             fetchTenants(); // Atualizar status visual na tabela
@@ -5239,6 +5902,156 @@
             }
         }
 
+        /* --- CONTRACTS LOGIC --- */
+        let allContractsCache = [];
+
+        async function fetchContracts() {
+            const tbody = document.getElementById('contracts-list-body');
+            if (!tbody) return;
+            tbody.innerHTML = `<tr><td colspan="5" class="py-20 text-center text-[#5a5a6e]"><i class="fa-solid fa-circle-notch fa-spin text-3xl mb-3"></i><p>Carregando contratos...</p></td></tr>`;
+
+            try {
+                const res = await fetchWithAuth('/api/v1/contracts/');
+                if (res.ok) {
+                    allContractsCache = await res.json();
+                    renderContracts();
+                }
+            } catch (e) { console.error('fetchContracts error', e); }
+        }
+
+        function renderContracts() {
+            const tbody = document.getElementById('contracts-list-body');
+            if (!tbody) return;
+            tbody.innerHTML = "";
+
+            let totalSigned = 0;
+            let totalPending = 0;
+
+            if (allContractsCache.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="py-20 text-center text-[#3a3a4e]"><i class="fa-solid fa-file-invoice text-5xl mb-4 opacity-20"></i><p>Nenhum contrato gerado ainda.</p></td></tr>`;
+            }
+
+            allContractsCache.forEach(c => {
+                if (c.status === 'signed') totalSigned += c.value;
+                else if (c.status === 'sent' || c.status === 'draft') totalPending += c.value;
+
+                const statusBadge = c.status === 'signed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : (c.status === 'sent' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20');
+                const statusLabel = c.status === 'signed' ? 'Assinado' : (c.status === 'sent' ? 'Enviado' : 'Rascunho');
+
+                tbody.innerHTML += `
+                    <tr class="hover:bg-white/[0.02] transition-colors border-b border-[#1e1e2e]/50">
+                        <td class="px-6 py-4">
+                            <p class="text-sm font-bold text-gray-200">${c.title}</p>
+                            <p class="text-[10px] text-[#5a5a6e] font-mono">${c.lead_id || 'Sem lead vinculado'}</p>
+                        </td>
+                        <td class="px-6 py-4">
+                            <p class="text-sm font-bold text-white">R$ ${c.value.toLocaleString('pt-BR')}</p>
+                            <p class="text-[10px] text-[#5a5a6e]">${c.duration_months} meses</p>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${statusBadge}">${statusLabel}</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <p class="text-xs text-[#8b8b9e]">${new Date(c.created_at).toLocaleDateString('pt-BR')}</p>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <div class="flex justify-end gap-2">
+                                ${c.status !== 'signed' ? `<button onclick="signContract('${c.id}')" class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all" title="Marcar como Assinado"><i class="fa-solid fa-check"></i></button>` : ''}
+                                <button onclick="deleteContract('${c.id}')" class="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all" title="Excluir"><i class="fa-solid fa-trash-can"></i></button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            document.getElementById('contract-stat-signed').innerText = `R$ ${totalSigned.toLocaleString('pt-BR')}`;
+            document.getElementById('contract-stat-pending').innerText = `R$ ${totalPending.toLocaleString('pt-BR')}`;
+            const rate = allContractsCache.length > 0 ? ((allContractsCache.filter(c => c.status === 'signed').length / allContractsCache.length) * 100).toFixed(1) : 0;
+            document.getElementById('contract-stat-rate').innerText = `${rate}%`;
+        }
+
+        function openContractModal() {
+            document.getElementById('modal-new-contract').classList.remove('hidden');
+            document.getElementById('modal-new-contract').classList.add('flex');
+        }
+        function closeContractModal() {
+            document.getElementById('modal-new-contract').classList.add('hidden');
+            document.getElementById('modal-new-contract').classList.remove('flex');
+            document.getElementById('form-new-contract').reset();
+        }
+
+        async function submitContract(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-contract');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Gerando...';
+
+            const payload = {
+                title: document.getElementById('contract-input-title').value,
+                value: parseFloat(document.getElementById('contract-input-value').value) || 0,
+                duration_months: parseInt(document.getElementById('contract-input-duration').value) || 12,
+                lead_id: document.getElementById('contract-input-lead').value || null,
+                status: 'draft'
+            };
+
+            try {
+                const res = await fetchWithAuth('/api/v1/contracts/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    closeContractModal();
+                    fetchContracts();
+                }
+            } catch (e) { console.error('submitContract error', e); }
+            btn.disabled = false;
+            btn.innerHTML = 'Gerar Contrato';
+        }
+
+        async function signContract(id) {
+            if (!confirm('Deseja marcar este contrato como ASSINADO?')) return;
+            try {
+                await fetchWithAuth(`/api/v1/contracts/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: 'signed' })
+                });
+                fetchContracts();
+            } catch (e) { }
+        }
+
+        /* --- AUDIT LOGS LOGIC --- */
+        async function fetchAuditLogs() {
+            const tbody = document.getElementById('audit-logs-body');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="5" class="py-10 text-center text-[#5a5a6e]"><i class="fa-solid fa-circle-notch animate-spin mr-2"></i>Carregando logs...</td></tr>';
+
+            try {
+                const res = await fetchWithAuth('/api/v1/agent/audit');
+                if (res.ok) {
+                    const json = await res.json();
+                    tbody.innerHTML = json.data.map(l => `
+                        <tr class="hover:bg-white/[0.02] transition-colors text-xs">
+                            <td class="px-6 py-4 text-[#8b8b9e]">${new Date(l.timestamp).toLocaleString('pt-BR')}</td>
+                            <td class="px-6 py-4 font-bold text-gray-200">${l.user}</td>
+                            <td class="px-6 py-4"><span class="px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 font-bold border border-cyan-500/20">${l.action}</span></td>
+                            <td class="px-6 py-4 text-gray-300">${l.target}</td>
+                            <td class="px-6 py-4 text-[#5a5a6e] italic">${JSON.stringify(l.details || {})}</td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        async function deleteContract(id) {
+            if (!confirm('Excluir contrato permanentemente?')) return;
+            try {
+                await fetchWithAuth(`/api/v1/contracts/${id}`, { method: 'DELETE' });
+                fetchContracts();
+            } catch (e) { }
+        }
+
     </script>
 
     <!-- Modal Nova Empresa (Super Admin) -->
@@ -5332,6 +6145,55 @@
                 class="w-full bg-[#1c1c28] hover:bg-[#2a2a35] text-white px-4 py-3 rounded-lg text-sm font-medium transition-colors border border-[#1e1e2e]">
                 Fechar
             </button>
+        </div>
+    </div>
+
+    <!-- MODAL PREMIUM PARA IMAGENS -->
+    <div id="image-modal" class="modal">
+        <span class="modal-close" onclick="closeImageModal()">&times;</span>
+        <img class="modal-content" id="modal-img">
+        <div id="modal-caption"></div>
+    </div>
+
+    <!-- MODAL ATALHOS (QUICK REPLIES) -->
+    <div id="modal-quick-replies" class="fixed inset-0 z-[110] bg-black/80 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-[#111118] border border-[#1e1e2e] rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div class="p-4 border-b border-[#1e1e2e] flex justify-between items-center bg-[#16161e]">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-bolt text-cyan-400"></i> Atalhos de Resposta</h3>
+                <button onclick="document.getElementById('modal-quick-replies').classList.add('hidden')" class="text-[#5a5a6e] hover:text-white">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+            <div id="quick-replies-list" class="p-4 space-y-2 max-h-[400px] overflow-y-auto custom-scroll">
+                <!-- Injected by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL LEMBRETE (FOLLOW-UP) -->
+    <div id="modal-lead-followup" class="fixed inset-0 z-[110] bg-black/80 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-[#111118] border border-[#1e1e2e] rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden">
+            <div class="p-4 border-b border-[#1e1e2e] flex justify-between items-center bg-[#16161e]">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-regular fa-clock text-yellow-500"></i> Agendar Retorno</h3>
+                <button onclick="document.getElementById('modal-lead-followup').classList.add('hidden')" class="text-[#5a5a6e] hover:text-white">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="text-[10px] text-[#5a5a6e] uppercase font-bold mb-2 block">Retornar em:</label>
+                    <select id="followup-hours" class="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-sm text-white focus:border-cyan-500/50 outline-none">
+                        <option value="1">1 hora</option>
+                        <option value="4">4 horas</option>
+                        <option value="24" selected>Amanhã (24h)</option>
+                        <option value="48">48 horas</option>
+                        <option value="168">1 semana</option>
+                    </select>
+                </div>
+                <button onclick="saveFollowup()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-[#0a0a0f] py-2 rounded-xl text-sm font-bold shadow-lg transition-all">
+                    Criar Lembrete
+                </button>
+            </div>
         </div>
     </div>
 </body>

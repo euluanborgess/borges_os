@@ -1,6 +1,20 @@
 import httpx
 from core.config import settings
 
+async def send_presence(instance_name: str, remote_jid: str, presence: str = "composing", evolution_url: str | None = None, evolution_api_key: str | None = None):
+    """
+    Envia estado de presença (composing = digitando, recording = gravando áudio).
+    """
+    base_url = (evolution_url or settings.EVOLUTION_API_URL).strip().rstrip('/')
+    api_key = (evolution_api_key or settings.EVOLUTION_API_KEY).strip()
+    url = f"{base_url}/chat/sendPresence/{instance_name}"
+    headers = {"apikey": api_key, "Content-Type": "application/json"}
+    payload = {"number": remote_jid, "presence": presence}
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(url, json=payload, headers=headers, timeout=5.0)
+    except Exception: pass
+
 async def send_whatsapp_message(instance_name: str, remote_jid: str, text: str, evolution_url: str | None = None, evolution_api_key: str | None = None) -> bool:
     """
     Envia uma mensagem de texto pela Evolution API para o número do Lead.

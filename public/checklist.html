@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BORGES OS - Master Roadmap Checklist</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+        body { background-color: #020617; font-family: 'Inter', sans-serif; color: #f8fafc; }
+        .glass-card { background: rgba(30, 41, 59, 0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
+        .checkbox-custom { width: 20px; height: 20px; border-radius: 6px; border: 2px solid #334155; display: flex; align-items: center; justify-content: center; transition: all 0.2s; cursor: pointer; }
+        .checkbox-custom.checked { background-color: #06b6d4; border-color: #06b6d4; }
+        .checkbox-custom i { color: #020617; font-size: 12px; display: none; }
+        .checkbox-custom.checked i { display: block; }
+        .checked-text { text-decoration: line-through; opacity: 0.5; }
+    </style>
+</head>
+<body class="p-6 md:p-12">
+    <div class="max-w-5xl mx-auto">
+        <header class="mb-12">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+                    <i class="fa-solid fa-clipboard-list text-white text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-3xl font-extrabold tracking-tight">Master Roadmap <span class="text-cyan-400">Borges OS</span></h1>
+                    <p class="text-slate-400 text-sm">O caminho para o CRM de IA mais robusto do mercado.</p>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="glass-card p-4 rounded-2xl">
+                    <p class="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Status Global</p>
+                    <div class="flex items-center gap-2">
+                        <div class="h-2 flex-1 bg-slate-800 rounded-full overflow-hidden">
+                            <div class="h-full bg-cyan-500 w-[100%]"></div>
+                        </div>
+                        <span class="text-sm font-bold text-cyan-400">100%</span>
+                    </div>
+                </div>
+                <div class="glass-card p-4 rounded-2xl flex items-center justify-between">
+                    <div>
+                        <p class="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Visão</p>
+                        <p class="text-sm font-semibold">Dono de Sistema</p>
+                    </div>
+                    <i class="fa-solid fa-crown text-amber-400 opacity-50"></i>
+                </div>
+                <div class="glass-card p-4 rounded-2xl flex items-center justify-between">
+                    <div>
+                        <p class="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Próxima Meta</p>
+                        <p class="text-sm font-semibold text-emerald-400">Escalabilidade 100%</p>
+                    </div>
+                    <i class="fa-solid fa-rocket text-emerald-400 opacity-50"></i>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8" id="checklist-container">
+            <!-- As seções serão injetadas via JS -->
+        </div>
+    </div>
+
+    <script>
+        const roadmap = [
+            {
+                category: "🛠️ Engenharia & Core (Owner)",
+                items: [
+                    { task: "Migrar dicionário in-memory para Persistência Real (SQLite Buffer)", done: true },
+                    { task: "Auto-reconnect inteligente do Polling WhatsApp", done: true },
+                    { task: "Sistema de Logs de Auditoria (Quem alterou o quê?)", done: true },
+                    { task: "Multitenancy: Isolamento absoluto de arquivos de mídia", done: true },
+                    { task: "Rate Limiting por Tenant (Proteção de custos de API)", done: true }
+                ]
+            },
+            {
+                category: "🎨 UX & Produtividade (Atendente)",
+                items: [
+                    { task: "Modal Premium para Visualização de Mídias", done: true },
+                    { task: "Galeria Lateral de Mídias por Contato", done: true },
+                    { task: "Indicador de 'IA Digitanto' no WhatsApp real", done: true },
+                    { task: "Envio de Mídias (Fotos/Arquivos) direto pelo InBox", done: true },
+                    { task: "Player de áudio nativo com controle de velocidade", done: true }
+                ]
+            },
+            {
+                category: "📊 Estratégia & ROI (Gestor)",
+                items: [
+                    { task: "Dashboard de Métricas em Tempo Real", done: true },
+                    { task: "Lead Scoring 2.0 (Probabilidade de Fechamento)", done: true },
+                    { task: "Relatório de Performance da IA (Gaps)", done: true },
+                    { task: "Integração Nativa de Pagamentos (Asaas/Stripe)", done: true },
+                    { task: "Exportação de Leads (CSV/JSON) para Ads", done: true }
+                ]
+            },
+            {
+                category: "🤖 Inteligência Multimodal (IA)",
+                items: [
+                    { task: "Whisper: Transcrição de áudios recebidos", done: true },
+                    { task: "GPT-4o Vision: Análise visual de imagens", done: true },
+                    { task: "IA Voice: Borges respondendo com áudio natural (TTS)", done: true },
+                    { task: "OCR Inteligente: Extração de dados de docs/comprovantes", done: true },
+                    { task: "Ações Autônomas: Agendar reuniões no Google/Outlook", done: true }
+                ]
+            }
+        ];
+
+        function renderChecklist() {
+            const container = document.getElementById('checklist-container');
+            container.innerHTML = roadmap.map(section => `
+                <div class="glass-card rounded-3xl p-6 mb-4">
+                    <h3 class="text-lg font-bold mb-6 flex items-center gap-3">
+                        ${section.category}
+                    </h3>
+                    <div class="space-y-4">
+                        ${section.items.map(item => `
+                            <div class="flex items-start gap-3 group">
+                                <div class="checkbox-custom ${item.done ? 'checked' : ''} mt-0.5">
+                                    <i class="fa-solid fa-check"></i>
+                                </div>
+                                <span class="text-sm font-medium ${item.done ? 'checked-text' : 'text-slate-300 group-hover:text-white transition-colors'}">
+                                    ${item.task}
+                                </span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        renderChecklist();
+    </script>
+</body>
+</html>
