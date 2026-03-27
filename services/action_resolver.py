@@ -1,6 +1,6 @@
 import json
 from sqlalchemy.orm import Session
-from models import Lead, Task, Event, Pipeline, PipelineStage
+from models import Lead, Task, Event, Pipeline, PipelineStage, Contract
 
 class ActionResolver:
     """
@@ -24,6 +24,10 @@ class ActionResolver:
             except Exception as e:
                 print(f"Erro ao executar action {action}: {e}")
                 
+        # Auto-update score after any profile update
+        from services.scoring_service import calculate_lead_score
+        self.lead.score = calculate_lead_score(self.db, self.lead)
+        
         self.db.commit()
 
     def _route_action(self, action: dict):
@@ -89,35 +93,19 @@ class ActionResolver:
                     except Exception as e:
                         print(f"Falha ao criar tasks de onboarding: {e}")
 
-                    # Generate contract (minimal v1): save a filled template to /media
+                    # Generate contract using new Contract model
                     try:
-                        import os
-                        from datetime import datetime
-                        from models import Tenant
-                        tenant = self.db.query(Tenant).filter(Tenant.id == self.tenant_id).first()
-                        if tenant:
-                            os.makedirs("media_storage/contracts", exist_ok=True)
-                            tpl = tenant.contract_template or (
-                                "CONTRATO - {tenant_name}\n\nCliente: {lead_name}\nWhatsApp: {lead_phone}\n\nValor: R$ {value}\nData: {date}\n\n(Template inicial - editar conforme necessário)\n"
-                            )
-                            filled = tpl.format(
-                                tenant_name=tenant.name,
-                                lead_name=self.lead.name or "Cliente",
-                                lead_phone=self.lead.phone,
-                                value=(self.lead.closed_value or self.lead.estimated_value or 0),
-                                date=datetime.now().strftime("%d/%m/%Y"),
-                            )
-                            fname = f"{self.lead_id}.txt"
-                            fpath = os.path.join("media_storage", "contracts", fname)
-                            with open(fpath, "w", encoding="utf-8") as f:
-                                f.write(filled)
-
-                            # Store link in profile_data for UI usage
-                            profile = dict(self.lead.profile_data) if self.lead.profile_data else {}
-                            profile["contract_url"] = f"/media/contracts/{fname}"
-                            self.lead.profile_data = profile
+                        new_contract = Contract(
+                            tenant_id=self.tenant_id,
+                            lead_id=self.lead_id,
+                            title=f"Contrato de Venda - {self.lead.name or self.lead.phone}",
+                            value=(self.lead.closed_value or self.lead.estimated_value or 0.0),
+                            status="draft",
+                            duration_months=12
+                        )
+                        self.db.add(new_contract)
                     except Exception as e:
-                        print(f"Falha ao gerar contrato: {e}")
+                        print(f"Falha ao gerar contrato no DB: {e}")
 
                     # Send welcome message (best-effort)
                     try:
@@ -188,3 +176,30 @@ class ActionResolver:
                     "message": "Este lead solicitou atendimento humano."
                 })
             )
+            
+        elif action_type == "register_sale_conversion":
+            # Exemplo action: type="register_sale_conversion", value="1500.0"
+            try:
+                sale_value = float(value) if value else 0.0
+                self.lead.closed_value = sale_value
+                self.lead.pipeline_stage = "venda"
+                
+                from models import Tenant
+                from services.meta_capi_service import send_purchase_event
+                
+                tenant = self.db.query(Tenant).filter(Tenant.id == self.tenant_id).first()
+                if tenant and tenant.meta_pixel_id and tenant.meta_capi_token:
+                    lead_data = {
+                        "phone": self.lead.phone,
+                        "email": self.lead.email,
+                        "id": self.lead.id
+                    }
+                    # O disparo roda de forma blocante rapida, ou usando Celery futuramente.
+                    send_purchase_event(
+                        lead_data=lead_data,
+                        value=sale_value,
+                        meta_pixel_id=tenant.meta_pixel_id,
+                        meta_capi_token=tenant.meta_capi_token
+                    )
+            except Exception as e:
+                print(f"Erro ao disparar conversão de venda: {e}")

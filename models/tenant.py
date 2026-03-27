@@ -21,6 +21,11 @@ class Tenant(Base):
     contract_template = Column(String, nullable=True)
     integrations = Column(JSON, nullable=True)
     plan_limits = Column(JSON, nullable=True)
+    quick_replies = Column(JSON, nullable=True) # Catálogo de respostas rápidas do WhatsApp/Inbox
+    
+    # [META ADS CAPI] Integração de Pixel Server-Side
+    meta_pixel_id = Column(String, nullable=True)
+    meta_capi_token = Column(String, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

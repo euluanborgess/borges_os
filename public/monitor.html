@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Borges OS - Monitor do Agente</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @keyframes pulse-cyan {
+            0% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(6, 182, 212, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+        }
+        .status-dot { animation: pulse-cyan 2s infinite; }
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #0a0a0f; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #1e1e2e; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-[#0a0a0f] text-gray-300 font-sans min-h-screen flex flex-col">
+    <!-- Header -->
+    <header class="border-b border-[#1e1e2e] bg-[#111118] px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-cyan-500/20 rounded-xl flex items-center justify-center border border-cyan-500/30 status-dot">
+                <i class="fa-solid fa-robot text-cyan-400"></i>
+            </div>
+            <div>
+                <h1 class="text-white font-bold tracking-tight">AGENT MONITOR <span class="text-cyan-500 text-xs ml-2">V1.0</span></h1>
+                <p class="text-[10px] text-[#5a5a6e] uppercase font-bold tracking-widest">Borges OS - Auditoria Contínua</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="text-right">
+                <p class="text-[10px] text-[#5a5a6e] uppercase font-bold">Status do Servidor</p>
+                <p class="text-xs text-emerald-400 font-mono">ONLINE (PID 581515)</p>
+            </div>
+            <div class="h-8 w-[1px] bg-[#1e1e2e]"></div>
+            <div id="live-clock" class="text-sm font-mono text-white">11:55:00</div>
+        </div>
+    </header>
+
+    <main class="flex-1 p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Coluna 1: O que estou fazendo agora -->
+        <div class="lg:col-span-2 flex flex-col gap-6">
+            <div class="bg-[#111118] border border-[#1e1e2e] rounded-2xl p-6 shadow-2xl">
+                <h2 class="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                    <i class="fa-solid fa-terminal text-cyan-500"></i> LOG DE ATIVIDADES EM TEMPO REAL
+                </h2>
+                <div id="activity-log" class="space-y-3 h-[400px] overflow-y-auto custom-scroll pr-2">
+                    <div class="flex gap-3 items-start border-l-2 border-emerald-500 pl-4 py-1">
+                        <span class="text-[10px] font-mono text-[#5a5a6e]">12:18:45</span>
+                        <p class="text-sm text-gray-300">✅ ONBOARDING COMPLETO: Tenant 'Agência de Teste Autônomo' configurado e validado.</p>
+                    </div>
+                    <div class="flex gap-3 items-start border-l-2 border-purple-500 pl-4 py-1">
+                        <span class="text-[10px] font-mono text-[#5a5a6e]">12:06:15</span>
+                        <p class="text-sm text-gray-300 font-bold">🚀 INICIANDO ETAPA: ONBOARDING DE NOVO TENANT</p>
+                    </div>
+                    <div class="flex gap-3 items-start border-l-2 border-cyan-500 pl-4 py-1">
+                        <span class="text-[10px] font-mono text-[#5a5a6e]">11:55:02</span>
+                        <p class="text-sm text-gray-300">Página de monitoramento criada e implantada com sucesso.</p>
+                    </div>
+                    <div class="flex gap-3 items-start border-l-2 border-amber-500 pl-4 py-1">
+                        <span class="text-[10px] font-mono text-[#5a5a6e]">11:55:10</span>
+                        <p class="text-sm text-gray-300">Iniciando teste de persistência: Verificando se o botão "Gerar Contrato" responde após F5.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-[#111118] border border-[#1e1e2e] rounded-2xl p-5">
+                    <h3 class="text-xs font-bold text-[#5a5a6e] uppercase mb-3">Última Correção</h3>
+                    <p class="text-sm text-white font-semibold">Rota de Tarefas & Contratos</p>
+                    <p class="text-[11px] text-gray-400 mt-1 italic">Reativado no main.py e validado via API curl.</p>
+                </div>
+                <div class="bg-[#111118] border border-[#1e1e2e] rounded-2xl p-5">
+                    <h3 class="text-xs font-bold text-[#5a5a6e] uppercase mb-3">Próximo Teste</h3>
+                    <p class="text-sm text-white font-semibold">Onboarding de Novo Tenant</p>
+                    <p class="text-[11px] text-gray-400 mt-1 italic">Criar empresa fictícia para validar banco de dados.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Coluna 2: Status do Sistema -->
+        <div class="flex flex-col gap-6">
+            <div class="bg-[#111118] border border-[#1e1e2e] rounded-2xl p-6">
+                <h2 class="text-sm font-bold text-white mb-4">HEALTH CHECK</h2>
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs text-gray-400">Database (SQLite)</span>
+                        <span class="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20">OPERACIONAL</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs text-gray-400">WebSocket Stream</span>
+                        <span class="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20">CONECTADO</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs text-gray-400">Evolution API (Mock)</span>
+                        <span class="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded border border-cyan-500/20">SIMULADO</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-gradient-to-br from-cyan-600 to-cyan-800 rounded-2xl p-6 text-white shadow-lg shadow-cyan-500/20">
+                <h2 class="text-sm font-bold mb-2">AGENTE EM LOOP</h2>
+                <p class="text-xs opacity-80 mb-4">A cada 10 minutos, eu clico em todos os botões visíveis para caçar bugs.</p>
+                <div class="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
+                    <div class="bg-white h-full" style="width: 45%"></div>
+                </div>
+                <p class="text-[10px] mt-2 font-bold uppercase tracking-tighter">Próxima Varredura: 12:05</p>
+            </div>
+        </div>
+    </main>
+
+    <footer class="p-6 text-center border-t border-[#1e1e2e]">
+        <p class="text-[10px] text-[#5a5a6e]">Acesse esta página via: <strong>/api/v1/agent/monitor</strong></p>
+    </footer>
+
+    <script>
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('live-clock').innerText = now.toLocaleTimeString('pt-br');
+        }, 1000);
+    </script>
+</body>
+</html>

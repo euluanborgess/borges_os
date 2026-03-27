@@ -1,436 +1,511 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
-from core.database import get_db
-from models import Tenant, User, Lead
-from api.deps import get_current_user, require_role
-from pydantic import BaseModel, EmailStr
-from typing import Optional
 from sqlalchemy import func
-from passlib.context import CryptContext
-from sqlalchemy.orm.attributes import flag_modified
-from services.asaas_client import asaas_client
+from core.database import get_db
+from models.tenant import Tenant
+from api.deps import require_role
+from typing import List, Optional
 import httpx
-import logging
-import os
+from core.config import settings
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+EVOLUTION_API_URL = "https://cosmicstarfish-evolution.cloudfy.live"
+EVOLUTION_API_KEY = "bMQLdgHiveJZOejgVQqCMEY0zUSGalNh"
 
-class TenantCreateInput(BaseModel):
-    name: str
-    admin_email: EmailStr
-    admin_password: str
-    admin_name: str
-
-class EvolutionConnectInput(BaseModel):
-    tenant_id: str
-
-class TenantConfigUpdateInput(BaseModel):
-    system_prompt: Optional[str] = None
-    whatsapp_number: Optional[str] = None
-    sla_hours: Optional[int] = None
+@router.post("/whatsapp/connect")
+async def whatsapp_connect(data: dict = Body(...), db: Session = Depends(get_db)):
+    tenant_id = data.get("tenant_id")
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado")
     
-    # Billing
-    cnpj: Optional[str] = None
-    email: Optional[str] = None
-    plan_value: Optional[float] = None
-    setup_value: Optional[float] = None
-    due_date: Optional[int] = None
+    # Se o tenant já tem um ID de instância, tentamos usar ele, senão geramos um
+    instance_name = tenant.evolution_instance_id if (tenant.evolution_instance_id and not tenant.evolution_instance_id.startswith('insta_')) else f"borges_{str(tenant_id)[:8]}"
     
-    # AI Persona
-    agent_name: Optional[str] = None
-    agent_tone: Optional[str] = None
-    agent_goal: Optional[str] = None
-    
-    # Knowledge Base
-    business_niche: Optional[str] = None
-    working_hours: Optional[str] = None
-    physical_address: Optional[str] = None
-    products_services: Optional[str] = None
-    objection_handling: Optional[str] = None
-    
-    # Integrations
-    evolution_api_url: Optional[str] = None
-    evolution_api_key: Optional[str] = None
-    openai_api_key: Optional[str] = None
+    async with httpx.AsyncClient() as client:
+        try:
+            # 1. Tentar buscar a instância para ver se existe
+            res = await client.get(
+                f"{EVOLUTION_API_URL}/instance/fetchInstances",
+                headers={"apikey": EVOLUTION_API_KEY},
+                timeout=10.0
+            )
+            instances = res.json()
+            existing = next((i for i in instances if i['name'] == instance_name), None)
+            
+            # 2. Se não existir, criar
+            if not existing:
+                create_res = await client.post(
+                    f"{EVOLUTION_API_URL}/instance/create",
+                    headers={"apikey": EVOLUTION_API_KEY, "Content-Type": "application/json"},
+                    json={
+                        "instanceName": instance_name,
+                        "integration": "WHATSAPP-BAILEYS"
+                    },
+                    timeout=10.0
+                )
+            
+            # 3. Gerar/Buscar QR Code
+            qr_res = await client.get(
+                f"{EVOLUTION_API_URL}/instance/connect/{instance_name}",
+                headers={"apikey": EVOLUTION_API_KEY},
+                timeout=15.0
+            )
+            if qr_res.status_code == 200:
+                qr_data = qr_res.json()
+                # Atualizar o evolution_instance_id no banco apenas se for o gerado agora
+                tenant.evolution_instance_id = instance_name
+                db.commit()
+                
+                return {
+                    "status": "success",
+                    "qrcode": qr_data.get("base64") or qr_data.get("code"),
+                    "instance": instance_name
+                }
+            else:
+                qr_data = qr_res.json()
+                # Se já estiver aberto, retornar o status de conectado
+                if qr_data.get("message") == "Connection is already open":
+                    tenant.evolution_instance_id = instance_name
+                    db.commit()
+                    return {"status": "success", "message": "Conexão já estabelecida.", "instance": instance_name}
+                
+                return {"status": "error", "detail": qr_data.get("message", "Falha ao obter QR Code")}
+                
+        except Exception as e:
+            raise HTTPException(status_code=500, detail="Falha na comunicação com Evolution API")
 
-@router.post("/tenants", status_code=status.HTTP_201_CREATED)
-def create_new_tenant(
-    payload: TenantCreateInput, 
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(require_role(["super_admin"]))
+@router.post("/whatsapp/disconnect")
+async def whatsapp_disconnect(data: dict = Body(...), db: Session = Depends(get_db)):
+    tenant_id = data.get("tenant_id")
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    
+    if tenant and tenant.evolution_instance_id:
+        instance_name = tenant.evolution_instance_id
+        async with httpx.AsyncClient() as client:
+            try:
+                await client.delete(
+                    f"{EVOLUTION_API_URL}/instance/logout/{instance_name}",
+                    headers={"apikey": EVOLUTION_API_KEY},
+                    timeout=10.0
+                )
+                await client.delete(
+                    f"{EVOLUTION_API_URL}/instance/delete/{instance_name}",
+                    headers={"apikey": EVOLUTION_API_KEY},
+                    timeout=10.0
+                )
+            except: pass
+            
+        tenant.whatsapp_number = "Aguardando Conexão"
+        tenant.evolution_instance_id = None
+        db.commit()
+        
+    return {"status": "success", "message": "Desconectado com sucesso."}
+
+@router.post("/instagram/connect")
+def instagram_connect(data: dict = Body(...), db: Session = Depends(get_db)):
+    # Simula o início do fluxo de conexão
+    tenant_id = data.get("tenant_id")
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if tenant:
+        # Marcamos como 'pendente_insta' para o polling saber que iniciou
+        tenant.evolution_instance_id = (tenant.evolution_instance_id or "") + "_pending_insta"
+        db.commit()
+        
+    return {
+        "status": "success", 
+        "login_url": "https://www.instagram.com/accounts/login/",
+        "message": "Redirecionando para login do Instagram."
+    }
+
+@router.post("/instagram/confirm")
+def instagram_confirm(data: dict = Body(...), db: Session = Depends(get_db)):
+    tenant_id = data.get("tenant_id")
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if tenant:
+        # Marcamos como conectado de forma definitiva para o front-end reconhecer no F5
+        tenant.evolution_instance_id = "insta_connected_" + str(tenant_id)[:8]
+        # Atualizamos o campo integrations para persistir o estado
+        integ = dict(tenant.integrations) if tenant.integrations else {}
+        integ["instagram_connected"] = True
+        tenant.integrations = integ
+        db.commit()
+        return {"status": "success", "message": "Instagram conectado com sucesso!"}
+    raise HTTPException(status_code=404, detail="Tenant não encontrado")
+
+@router.post("/tenants")
+def create_tenant(
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(["super_admin"]))
 ):
-    """
-    Onboarding de nova empresa. Cria o Tenant e o seu primeiro usuário Administrador.
-    """
-    # 1. Verificar se o e-mail do admin já existe globalmente
-    existing_user = db.query(User).filter(User.email == payload.admin_email).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Este e-mail já está em uso no sistema.")
+    import uuid as uuid_mod
+    name = data.get("name")
+    owner_name = data.get("owner_name", data.get("admin_name", "Administrador"))
+    owner_email = data.get("owner_email", data.get("admin_email"))
+    owner_phone = data.get("owner_phone", "")
+    cnpj = data.get("cnpj", "")
+    address = data.get("address", "")
+    plan_value = data.get("plan_value", 0)
+    setup_value = data.get("setup_value", 0)
+    
+    if not name or not owner_email:
+        raise HTTPException(status_code=400, detail="Nome da empresa e email do responsável são obrigatórios")
 
-    # 2. Criar a nova empresa (Tenant)
+    # Check if email already exists
+    from models.user import User
+    existing = db.query(User).filter(User.email == owner_email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Este email já está cadastrado no sistema")
+        
+    # 1. Criar Tenant com dados completos
     new_tenant = Tenant(
-        name=payload.name,
-        whatsapp_number="Aguardando Conexão"
+        name=name,
+        billing_info={
+            "cnpj": cnpj,
+            "owner_name": owner_name,
+            "owner_phone": owner_phone,
+            "plan_value": plan_value,
+            "setup_value": setup_value
+        },
+        knowledge_base={
+            "physical_address": address
+        }
     )
     db.add(new_tenant)
     db.commit()
     db.refresh(new_tenant)
-
-    # 3. Criar o Vendedor Gestor (Tenant Admin)
-    hashed_password = pwd_context.hash(payload.admin_password)
-    new_admin = User(
+    
+    # 2. Gerar token de convite
+    invite_token = str(uuid_mod.uuid4())
+    
+    # 3. Criar Admin do Tenant (inativo até finalizar cadastro)
+    from core.security import get_password_hash
+    new_user = User(
         tenant_id=new_tenant.id,
-        email=payload.admin_email,
-        full_name=payload.admin_name,
-        hashed_password=hashed_password,
-        role="tenant_admin",
-        is_active=True
+        full_name=owner_name,
+        email=owner_email,
+        hashed_password=get_password_hash(str(uuid_mod.uuid4())),  # placeholder until registration
+        role="company_admin",
+        is_active=False,
+        first_login=True,
+        invite_token=invite_token
     )
-    db.add(new_admin)
+    db.add(new_user)
     db.commit()
     
-    # 4. (Opcional) Poderíamos injetar um Pipeline/Leads padrão aqui.
-
+    # 4. Tentar enviar email de convite
+    invite_url = f"/register?token={invite_token}"
+    email_sent = False
+    try:
+        from services.email_service import send_invite_email
+        email_sent = send_invite_email(owner_email, owner_name, name, invite_url)
+    except Exception as e:
+        print(f"Email não enviado (configure SMTP no .env): {e}")
+    
     return {
         "status": "success", 
-        "message": f"Empresa '{payload.name}' criada com sucesso!",
-        "tenant_id": new_tenant.id
+        "message": f"Empresa '{name}' criada com sucesso!",
+        "tenant_id": str(new_tenant.id),
+        "invite_url": invite_url,
+        "invite_token": invite_token,
+        "email_sent": email_sent
     }
 
-@router.get("/tenants")
-def list_all_tenants(
-    month: Optional[int] = None,
-    year: Optional[int] = None,
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(require_role(["super_admin"]))
-):
-    """
-    Lista todas as empresas do SaaS para o Dashboard do Super Admin.
-    """
-    tenants = db.query(Tenant).all()
-    results = []
-    
-    total_mrr = 0.0
-    total_setup = 0.0
-    
-    for t in tenants:
-        billing = t.billing_info or {}
-        p_val = float(billing.get("plan_value", 0) or 0)
-        s_val = float(billing.get("setup_value", 0) or 0)
-        
-        # MRR/ARR is global always
-        total_mrr += p_val
-        
-        # Setup is strictly temporal (if filter provided)
-        include_setup = True
-        if month and year and t.created_at:
-            if t.created_at.month != month or t.created_at.year != year:
-                include_setup = False
-                
-        if include_setup:
-            total_setup += s_val
-        
-        results.append({
-            "id": t.id,
-            "name": t.name,
-            "whatsapp_number": t.whatsapp_number,
-            "plan_value": p_val,
-            "setup_value": s_val,
-            "created_at": t.created_at.isoformat() if t.created_at else None
-        })
-        
-    return {
-        "status": "success", 
-        "data": results,
-        "aggregates": {
-            "total_mrr": total_mrr,
-            "total_setup": total_setup,
-            "total_tenants": len(tenants)
-        }
-    }
-
-
-@router.get("/tenants/{tenant_id}")
-def get_tenant_details(
+@router.post("/tenants/{tenant_id}/resend-invite")
+def resend_invite(
     tenant_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(["super_admin"]))
+    current_user = Depends(require_role(["super_admin"]))
 ):
-    """
-    Retorna os detalhes precisos de uma empresa cliente.
-    (Métricas, prompts de IA, configs diversas).
-    """
+    """Reenvia o email de convite para o admin da empresa."""
+    import uuid as uuid_mod
+    from models.user import User
+    
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
-        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+        raise HTTPException(status_code=404, detail="Tenant não encontrado")
+    
+    # Buscar o admin do tenant
+    admin_user = db.query(User).filter(
+        User.tenant_id == tenant_id,
+        User.role == "company_admin"
+    ).first()
+    
+    if not admin_user:
+        raise HTTPException(status_code=404, detail="Admin da empresa não encontrado")
+    
+    # Se o user já está ativo, não precisa de convite
+    if admin_user.is_active and not admin_user.invite_token:
+        return {
+            "status": "info",
+            "message": "Este usuário já ativou a conta. Não é necessário reenviar convite.",
+            "email": admin_user.email
+        }
+    
+    # Gerar novo token se não tiver ou o antigo já foi usado
+    if not admin_user.invite_token:
+        admin_user.invite_token = str(uuid_mod.uuid4())
+        admin_user.is_active = False
+        db.commit()
+    
+    invite_url = f"/register?token={admin_user.invite_token}"
+    
+    # Tentar enviar email
+    email_sent = False
+    try:
+        from services.email_service import send_invite_email
+        owner_name = admin_user.full_name or "Administrador"
+        email_sent = send_invite_email(admin_user.email, owner_name, tenant.name, invite_url)
+    except Exception as e:
+        print(f"Erro ao reenviar email: {e}")
+    
+    return {
+        "status": "success",
+        "message": f"Convite reenviado para {admin_user.email}!",
+        "invite_url": invite_url,
+        "invite_token": admin_user.invite_token,
+        "email_sent": email_sent
+    }
 
-    # Metrics
-    total_leads = db.query(func.count(Lead.id)).filter(Lead.tenant_id == tenant_id).scalar() or 0
-    hot_leads = db.query(func.count(Lead.id)).filter(Lead.tenant_id == tenant_id, Lead.temperature == 'quente').scalar() or 0
+@router.put("/tenants/{tenant_id}/edit")
+def edit_tenant(
+    tenant_id: str,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(["super_admin"]))
+):
+    """Edita os dados cadastrais da empresa (nome, dono, CNPJ, etc)."""
+    from models.user import User
+    
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado")
+    
+    # Atualizar nome da empresa
+    if data.get("name"):
+        tenant.name = data["name"]
+    
+    # Atualizar billing_info (CNPJ, telefone, etc)
+    billing = dict(tenant.billing_info) if tenant.billing_info else {}
+    if "cnpj" in data: billing["cnpj"] = data["cnpj"]
+    if "owner_name" in data: billing["owner_name"] = data["owner_name"]
+    if "owner_phone" in data: billing["owner_phone"] = data["owner_phone"]
+    if "plan_value" in data: billing["plan_value"] = data["plan_value"]
+    if "setup_value" in data: billing["setup_value"] = data["setup_value"]
+    tenant.billing_info = billing
+    
+    # Atualizar endereço no knowledge_base
+    if "address" in data:
+        kb = dict(tenant.knowledge_base) if tenant.knowledge_base else {}
+        kb["physical_address"] = data["address"]
+        tenant.knowledge_base = kb
+    
+    # Atualizar dados do admin user (nome e email)
+    admin_user = db.query(User).filter(
+        User.tenant_id == tenant_id,
+        User.role == "company_admin"
+    ).first()
+    
+    if admin_user:
+        if data.get("owner_name"):
+            admin_user.full_name = data["owner_name"]
+        if data.get("owner_email") and data["owner_email"] != admin_user.email:
+            # Verificar se o novo email já existe
+            existing = db.query(User).filter(User.email == data["owner_email"]).first()
+            if existing and existing.id != admin_user.id:
+                raise HTTPException(status_code=400, detail="Este email já está em uso")
+            admin_user.email = data["owner_email"]
+    
+    db.commit()
+    
+    return {
+        "status": "success",
+        "message": f"Dados da empresa '{tenant.name}' atualizados!"
+    }
+
+@router.get("/tenants/{tenant_id}")
+async def get_tenant_detail(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(["super_admin"]))
+):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado")
+    
+    # [FIX] Sincronizar status real com a Evolution API antes de retornar os detalhes
+    if tenant.evolution_instance_id and not tenant.evolution_instance_id.startswith('insta_'):
+        async with httpx.AsyncClient() as client:
+            try:
+                res = await client.get(
+                    f"{EVOLUTION_API_URL}/instance/connectionState/{tenant.evolution_instance_id}",
+                    headers={"apikey": EVOLUTION_API_KEY},
+                    timeout=5.0
+                )
+                if res.status_code == 200:
+                    state_data = res.json()
+                    status = state_data.get("instance", {}).get("state")
+                    if status == "open":
+                        # Se na Evolution está aberto mas no banco não tem o número, tentamos pegar o número
+                        if not tenant.whatsapp_number or tenant.whatsapp_number == "Aguardando Conexão":
+                            res_info = await client.get(
+                                f"{EVOLUTION_API_URL}/instance/fetchInstances",
+                                headers={"apikey": EVOLUTION_API_KEY}
+                            )
+                            instances = res_info.json()
+                            this_inst = next((i for i in instances if i['name'] == tenant.evolution_instance_id), None)
+                            if this_inst and this_inst.get('ownerJid'):
+                                tenant.whatsapp_number = this_inst['ownerJid'].split('@')[0]
+                                db.commit()
+            except Exception as e:
+                print(f"Sync Status Error: {e}")
+
+    # Adicionando métricas reais para o detalhe
+    from models.lead import Lead
+    from models.user import User
+    total_leads = db.query(func.count(Lead.id)).filter(Lead.tenant_id == tenant.id).scalar() or 0
+    hot_leads = db.query(func.count(Lead.id)).filter(Lead.tenant_id == tenant.id, Lead.temperature == "quente").scalar() or 0
+    estimated_revenue = db.query(func.sum(Lead.estimated_value)).filter(Lead.tenant_id == tenant.id).scalar() or 0.0
+
+    # Buscar admin do tenant para retornar email
+    admin_user = db.query(User).filter(
+        User.tenant_id == tenant.id,
+        User.role == "company_admin"
+    ).first()
 
     return {
         "status": "success",
         "data": {
-            "id": tenant.id,
+            "id": str(tenant.id),
             "name": tenant.name,
-            "whatsapp_number": tenant.whatsapp_number,
-            "ai_config": tenant.ai_config or {},
-            "knowledge_base": tenant.knowledge_base or {},
-            "billing_info": tenant.billing_info or {},
-            "integrations": tenant.integrations or {},
-            "sla_hours": tenant.sla_hours,
+            "whatsapp_number": tenant.whatsapp_number or "Aguardando Conexão",
+            "evolution_instance_id": tenant.evolution_instance_id,
+            "instagram_connected": False,
+            "admin_email": admin_user.email if admin_user else "",
+            "admin_name": admin_user.full_name if admin_user else "",
+            "invite_pending": bool(admin_user and admin_user.invite_token),
             "metrics": {
                 "total_leads": total_leads,
                 "hot_leads": hot_leads,
-                "estimated_revenue": hot_leads * 150  # Mock logic for UI
-            }
+                "estimated_revenue": float(estimated_revenue)
+            },
+            "billing_info": tenant.billing_info or {},
+            "ai_config": tenant.ai_config or {},
+            "knowledge_base": tenant.knowledge_base or {},
+            "integrations": tenant.integrations or {}
         }
     }
 
-
 @router.put("/tenants/{tenant_id}/config")
-def update_tenant_config(
+def update_tenant_config_super(
     tenant_id: str,
-    payload: TenantConfigUpdateInput,
+    data: dict = Body(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(["super_admin"]))
+    current_user = Depends(require_role(["super_admin"]))
 ):
-    """
-    Atualiza as chaves da API e o prompt Global da IA para uma empresa específica.
-    """
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
-        raise HTTPException(status_code=404, detail="Empresa não encontrada")
-
-    if payload.whatsapp_number is not None:
-        tenant.whatsapp_number = payload.whatsapp_number
-    if payload.sla_hours is not None:
-        tenant.sla_hours = payload.sla_hours
+        raise HTTPException(status_code=404, detail="Tenant não encontrado")
     
-    ai_c = tenant.ai_config or {}
-    kb = tenant.knowledge_base or {}
-    bill = tenant.billing_info or {}
-    integ = tenant.integrations or {}
-
-    # AI Persona updates
-    if payload.system_prompt is not None: ai_c["system_prompt"] = payload.system_prompt
-    if payload.agent_name is not None: ai_c["agent_name"] = payload.agent_name
-    if payload.agent_tone is not None: ai_c["agent_tone"] = payload.agent_tone
-    if payload.agent_goal is not None: ai_c["agent_goal"] = payload.agent_goal
-
-    # Knowledge Base updates
-    if payload.business_niche is not None: kb["business_niche"] = payload.business_niche
-    if payload.working_hours is not None: kb["working_hours"] = payload.working_hours
-    if payload.physical_address is not None: kb["physical_address"] = payload.physical_address
-    if payload.products_services is not None: kb["products_services"] = payload.products_services
-    if payload.objection_handling is not None: kb["objection_handling"] = payload.objection_handling
-
-    # Billing updates
-    if payload.cnpj is not None: bill["cnpj"] = payload.cnpj
-    if payload.email is not None: bill["email"] = payload.email
-    if payload.plan_value is not None: bill["plan_value"] = payload.plan_value
-    if payload.setup_value is not None: bill["setup_value"] = payload.setup_value
-    if payload.due_date is not None: bill["due_date"] = payload.due_date
-
-    # Integration updates
-    if payload.evolution_api_url is not None: integ["evolution_api_url"] = payload.evolution_api_url
-    if payload.evolution_api_key is not None: integ["evolution_api_key"] = payload.evolution_api_key
-    if payload.openai_api_key is not None: integ["openai_api_key"] = payload.openai_api_key
-
-    # Reassign JSON clones to trigger SQLAlchemy change tracking
-    tenant.ai_config = ai_c.copy()
-    tenant.knowledge_base = kb.copy()
-    tenant.billing_info = bill.copy()
-    tenant.integrations = integ.copy()
+    # Atualizar campos principais
+    if "whatsapp_number" in data:
+        tenant.whatsapp_number = data["whatsapp_number"]
+    if "sla_hours" in data:
+        tenant.sla_hours = data["sla_hours"]
+    if "meta_pixel_id" in data:
+        tenant.meta_pixel_id = data["meta_pixel_id"]
+    if "meta_capi_token" in data:
+        tenant.meta_capi_token = data["meta_capi_token"]
+        
+    # Atualizar JSONs
+    # Billing
+    billing_fields = ["cnpj", "email", "plan_value", "setup_value", "due_date"]
+    current_billing = dict(tenant.billing_info) if tenant.billing_info else {}
+    for f in billing_fields:
+        if f in data: current_billing[f] = data[f]
+    tenant.billing_info = current_billing
     
-    flag_modified(tenant, "ai_config")
-    flag_modified(tenant, "knowledge_base")
-    flag_modified(tenant, "billing_info")
-    flag_modified(tenant, "integrations")
-
+    # AI Config
+    ai_fields = ["agent_name", "agent_tone", "agent_goal", "system_prompt", "auto_audio"]
+    current_ai = dict(tenant.ai_config) if tenant.ai_config else {}
+    for f in ai_fields:
+        if f in data: current_ai[f] = data[f]
+    tenant.ai_config = current_ai
+    
+    # Knowledge Base
+    kb_fields = [
+        "company_name", "products_services", "address", "business_hours",
+        "faq", "pricing", "differentials", "extra_instructions",
+        # compat legado
+        "business_niche", "working_hours", "physical_address", "objection_handling"
+    ]
+    current_kb = dict(tenant.knowledge_base) if tenant.knowledge_base else {}
+    for f in kb_fields:
+        if f in data: current_kb[f] = data[f]
+    tenant.knowledge_base = current_kb
+    
+    # Integrations (API KEYS)
+    integ_fields = ["evolution_api_url", "evolution_api_key", "openai_api_key", "asaas_api_key", "llm_model"]
+    current_integ = dict(tenant.integrations) if tenant.integrations else {}
+    for f in integ_fields:
+        if f in data: current_integ[f] = data[f]
+    tenant.integrations = current_integ
+    
     db.commit()
-    
-    return {
-        "status": "success",
-        "message": "Configurações da empresa atualizadas."
-    }
+    return {"status": "success", "message": "Configurações do Tenant atualizadas"}
 
-@router.post("/tenants/{tenant_id}/asaas/generate")
-def generate_asaas_billing(
-    tenant_id: str,
+@router.get("/tenants")
+def list_tenants(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(["super_admin"]))
+    current_user = Depends(require_role(["super_admin"]))
 ):
-    """
-    Cria Cliente, Assinatura (MRR) e Cobrança Avulsa (Setup) no Asaas.
-    """
-    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-    if not tenant:
-        raise HTTPException(status_code=404, detail="Empresa não encontrada.")
-
-    bill = tenant.billing_info or {}
-    email = bill.get("email")
-    if not email:
-        raise HTTPException(400, "O e-mail do cliente é obrigatório para gerar faturas interligadas com o Asaas.")
-
-    # 1. Get or Create Asaas Customer
-    customer_id = bill.get("asaas_customer_id")
-    if not customer_id:
-        customer_id = asaas_client.create_customer(
-            name=tenant.name,
-            email=email,
-            cpf_cnpj=bill.get("cnpj", ""),
-            phone=tenant.whatsapp_number
-        )
-        if not customer_id:
-            raise HTTPException(500, "Falha na comunicação com o Asaas Client para criar o Assinante.")
+    try:
+        tenants = db.query(Tenant).all()
+        
+        total_mrr = 0.0
+        total_setup = 0.0
+        
+        tenant_list = []
+        for t in tenants:
+            # Pegar valores das colunas dinamicamente
+            mrr = 0.0
+            setup = 0.0
             
-        bill["asaas_customer_id"] = customer_id
-        tenant.billing_info = bill.copy()
-        flag_modified(tenant, "billing_info")
-        db.commit()
-
-    # 2. Create MRR Subscription
-    plan_val = float(bill.get("plan_value", 0) or 0)
-    if plan_val > 0 and not bill.get("asaas_subscription_id"):
-        sub_id = asaas_client.create_subscription(customer_id, plan_val)
-        if sub_id:
-            bill["asaas_subscription_id"] = sub_id
-            tenant.billing_info = bill.copy()
-            flag_modified(tenant, "billing_info")
-            db.commit()
-
-    # 3. Create One-Off Setup Charge
-    setup_val = float(bill.get("setup_value", 0) or 0)
-    if setup_val > 0 and not bill.get("asaas_setup_payment_id"):
-        pay_id = asaas_client.create_payment(customer_id, setup_val)
-        if pay_id:
-            bill["asaas_setup_payment_id"] = pay_id
-            tenant.billing_info = bill.copy()
-            flag_modified(tenant, "billing_info")
-            db.commit()
-
-    return {
-        "status": "success", 
-        "message": "Cobranças geradas e sincronizadas com o Asaas via API!"
-    }
-
-@router.post("/whatsapp/connect")
-async def connect_whatsapp_evolution(
-    payload: EvolutionConnectInput, 
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(require_role(["super_admin"]))
-):
-    """
-    Consome a Evolution API para criar a instância (se não existir) e pedir o QRCode Base64.
-    """
-    tenant = db.query(Tenant).filter(Tenant.id == payload.tenant_id).first()
-    if not tenant:
-        raise HTTPException(status_code=404, detail="Empresa não encontrada.")
-
-    # Integration Fields
-    integ = tenant.integrations or {}
-    
-    # Evolution API REAL INTEGRATION
-    # Pull specific tenant configs first, fallback to global defaults only if missing
-    raw_url = integ.get("evolution_api_url") or os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
-    raw_key = integ.get("evolution_api_key") or os.getenv("EVOLUTION_API_KEY", "global-api-key-evolution")
-    
-    # Clean up any trailing/leading whitespace and slashes from UI inputs
-    EVOLUTION_URL = raw_url.strip().rstrip('/')
-    EVOLUTION_GLOBAL_KEY = raw_key.strip()
-    
-    instance_name = f"borges_{tenant.id[0:8]}" 
-    headers = {"apikey": EVOLUTION_GLOBAL_KEY}
-    
-    print("====== DEBUG EVOLUTION API CONNECT ======")
-    print(f"URL: [{EVOLUTION_URL}]")
-    print(f"KEY: [{EVOLUTION_GLOBAL_KEY}]")
-    print(f"TENANT INTEGRATIONS JSON: {integ}")
-    print("=========================================")
-    
-    import httpx
-    
-    # Evolution API initialization can be slow (spins up baileys engine)
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            # 1. Tentar criar a instância (ignora se ja existir)
-            create_res = await client.post(
-                f"{EVOLUTION_URL}/instance/create",
-                json={
-                    "instanceName": instance_name, 
-                    "token": instance_name,
-                    "qrcode": True,
-                    "integration": "WHATSAPP-BAILEYS",
-                    "webhook": {
-                        "enabled": True,
-                        "url": f"{(integ.get('public_base_url') or os.getenv('PUBLIC_BASE_URL') or 'http://localhost:8000').strip().rstrip('/')}/api/v1/webhooks/evolution",
-                        "webhookByEvents": False,
-                        "webhookBase64": True,
-                        "events": ["MESSAGES_UPSERT", "CONNECTION_UPDATE"]
-                    }
-                },
-                headers=headers
-            )
-            
-            if create_res.status_code == 401:
-                raise HTTPException(status_code=400, detail="Chave da Evolution API Recusada (Global/Apikey Inválida).")
-            elif create_res.status_code == 403:
-                # 403 pode significar "Forbidden" por apiKey errada, OU "Route is already in use"
-                if "already in use" not in create_res.text.lower():
-                    raise HTTPException(status_code=400, detail="Chave da Evolution API Recusada (Global/Apikey Inválida).")
-                # Se for already in use, apenas ignora e segue para o step 2
+            try:
+                if hasattr(t, 'plan_value'):
+                    mrr = float(t.plan_value or 0)
+                if hasattr(t, 'setup_value'):
+                    setup = float(t.setup_value or 0)
+            except:
+                pass
                 
-            # 2. Requisitar o Base64 do QR Code para conexão
-            response = await client.get(
-                f"{EVOLUTION_URL}/instance/connect/{instance_name}",
-                headers=headers
-            )
-            data = response.json()
+            if mrr == 0 and t.billing_info and isinstance(t.billing_info, dict):
+                mrr = float(t.billing_info.get("plan_value", 0))
+                setup = float(t.billing_info.get("setup_value", 0))
             
-            if response.status_code not in [200, 201]:
-                errmsg = data.get("error", "Erro ao conectar") if isinstance(data, dict) else str(data)
-                raise HTTPException(status_code=400, detail=f"Evolution API Retornou: {errmsg}")
-                
-            # 3. Retornar QR Code Base64
-            if "base64" in data:
-                 return {
-                     "status": "success", 
-                     "message": "Evolution API chamada com sucesso.",
-                     "qrcode": data["base64"], 
-                     "instance": instance_name
-                 }
-            else:
-                # Já conectada? Vamos tentar buscar o JID (número) que a Evolution salvou
-                 profile_num = None
-                 try:
-                     inst_res = await client.get(
-                         f"{EVOLUTION_URL}/instance/fetchInstances?instanceName={instance_name}",
-                         headers=headers
-                     )
-                     inst_data = inst_res.json()
-                     if inst_data and isinstance(inst_data, list):
-                         owner_jid = inst_data[0].get("ownerJid", "")
-                         if owner_jid:
-                             profile_num = owner_jid.split("@")[0]
-                             tenant.whatsapp_number = profile_num
-                             
-                 except Exception as e:
-                     print("AVISO: Falha ao buscar número da instância conectada:", e)
-
-                 # Salva as info importantes do webhook / connection no DB
-                 tenant.evolution_instance_id = instance_name
-                 db.commit()
-
-                 msg = f"Conectado com sucesso! ({profile_num})" if profile_num else "Instância já estabelecida ou QR Code indisponível."
-                 return {
-                     "status": "success", 
-                     "qrcode": None, 
-                     "message": msg,
-                     "whatsapp_number": profile_num
-                 }
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Falha ao conectar na Evolution API: {str(e)}")
+            total_mrr += mrr
+            total_setup += setup
+            
+            tenant_list.append({
+                "id": str(t.id),
+                "name": t.name,
+                "whatsapp_number": t.whatsapp_number or "Aguardando Conexão",
+                "evolution_instance_id": t.evolution_instance_id,
+                "plan_value": mrr,
+                "setup_value": setup
+            })
+        
+        return {
+            "status": "success",
+            "data": tenant_list,
+            "aggregates": {
+                "total_tenants": len(tenants),
+                "total_mrr": total_mrr,
+                "total_setup": total_setup
+            }
+        }
+    except Exception as e:
+        print(f"CRITICAL ERROR IN SUPER ADMIN: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
